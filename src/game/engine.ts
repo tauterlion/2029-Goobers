@@ -1,5 +1,6 @@
 import { COPY } from "./copy";
 import { CAPTION_MIN, CAPTION_MAX } from "./caption";
+import { activeImages, defaultDeck, Deck } from "./deck";
 export const PHASES = [
   "lobby",
   "starting",
@@ -69,6 +70,10 @@ export interface Result {
   winner: boolean;
 }
 export interface Room {
+  gameId?: string;
+  deck?: Deck;
+  recentGames?: string[][];
+  archivedGameId?: string;
   id: string;
   code: string;
   version: number;
@@ -97,6 +102,7 @@ export interface Room {
   vanishedAcknowledged: boolean;
 }
 export type Action = {
+  deck?: Deck;
   type: string;
   epoch?: string;
   name?: string;
@@ -159,6 +165,9 @@ export function newRoom(code: string, now: number): Room {
     id: crypto.randomUUID(),
     code,
     version: 0,
+    gameId: crypto.randomUUID(),
+    deck: defaultDeck(),
+    recentGames: [],
     host: "",
     phase: "lobby",
     epoch: crypto.randomUUID(),
@@ -218,7 +227,9 @@ export function join(
   return p;
 }
 export function drawImage(r: Room, player: string, library: string[]) {
-  const valid = library.filter((x) => !r.failed.includes(x));
+  const valid = activeImages(library, r.deck).filter(
+    (x) => !r.failed.includes(x),
+  );
   if (!valid.length) return "";
   if (!r.pool.length) r.pool = shuffle(valid);
   r.pool = r.pool.filter((x) => valid.includes(x));
@@ -227,14 +238,32 @@ export function drawImage(r: Room, player: string, library: string[]) {
   const assigned = Object.values(r.assignments);
   // Across pool boundaries, keep this round distinct whenever alternatives remain.
   const available = (x: string) => !assigned.includes(x);
-  let i = r.pool.findIndex(
-    (x) => available(x) && !seen.includes(x) && !r.previous.includes(x),
-  );
-  if (i < 0) i = r.pool.findIndex((x) => available(x) && !seen.includes(x));
-  if (i < 0) i = r.pool.findIndex((x) => available(x) && x !== seen.at(-1));
-  if (i < 0) i = r.pool.findIndex(available);
-  if (i < 0) i = r.pool.findIndex((x) => x !== seen.at(-1));
-  if (i < 0) i = 0;
+  const history = r.recentGames ?? (r.previous.length ? [r.previous] : []);
+  const recency = (image: string) => {
+    const at = history.findIndex((game) => game.includes(image));
+    return at < 0 ? 0 : history.length - at;
+  };
+  // Pool consumption prevents repeats within a cycle; rank candidates without
+  // filtering any away permanently, so even a one-image deck always terminates.
+  const rank = (image: string) => [
+    available(image) ? 0 : 1,
+    r.used.includes(image) ? 1 : 0,
+    recency(image),
+    image === r.used.at(-1) ? 1 : 0,
+    seen.includes(image) ? 1 : 0,
+    image === seen.at(-1) ? 1 : 0,
+  ];
+  let i = 0;
+  for (let j = 1; j < r.pool.length; j++) {
+    const a = rank(r.pool[j]),
+      b = rank(r.pool[i]);
+    for (let k = 0; k < a.length; k++) {
+      if (a[k] !== b[k]) {
+        if (a[k] < b[k]) i = j;
+        break;
+      }
+    }
+  }
   const [img] = r.pool.splice(i, 1);
   r.used.push(img);
   (r.seenImages[player] ??= []).push(img);
@@ -362,7 +391,7 @@ function reset(r: Room) {
     p.pending = false;
     p.stats = { pins: 0, deaths: 0, votes: 0, longest: 0, robbed: 0 };
   });
-  r.previous = [...new Set(r.used)];
+  // Current-game data resets; completed-game history and deck stay room-wide.
   r.used = [];
   r.pool = [];
   r.failed = [];
@@ -413,8 +442,10 @@ export function advance(r: Room, now: number, library: string[], skip = false) {
       phase(r, "round_leaderboard", now);
       break;
     case "round_leaderboard":
-      if (r.round >= r.settings.rounds) phase(r, "final_podium", now, 10);
-      else roundStart(r, now, library);
+      if (r.round >= r.settings.rounds) {
+        completeGame(r);
+        phase(r, "final_podium", now, 10);
+      } else roundStart(r, now, library);
       break;
     case "final_podium":
       phase(r, "final_awards", now);
@@ -423,6 +454,16 @@ export function advance(r: Room, now: number, library: string[], skip = false) {
       phase(r, "game_over", now);
       break;
   }
+}
+export function completeGame(r: Room) {
+  const id = r.gameId ?? r.epoch;
+  if (r.archivedGameId === id) return;
+  r.recentGames = [
+    [...new Set(r.used)],
+    ...(r.recentGames ?? (r.previous.length ? [r.previous] : [])),
+  ].slice(0, 3);
+  r.previous = r.recentGames[0];
+  r.archivedGameId = id;
 }
 export function tick(r: Room, now: number, library: string[]) {
   const online = r.players.filter((p) => connected(p, now));
@@ -450,6 +491,19 @@ export function act(
   library: string[],
 ) {
   const host = p.id === r.host;
+  if (a.type === "deck") {
+    requireThat(host && r.phase === "lobby", COPY.errors.deckHost);
+    requireThat(
+      a.deck &&
+        ["all", "blacklist", "whitelist"].includes(a.deck.mode) &&
+        Array.isArray(a.deck.images) &&
+        a.deck.images.every((image) => library.includes(image)),
+      COPY.errors.deckInvalid,
+    );
+    r.deck = { mode: a.deck.mode, images: [...new Set(a.deck.images)] };
+    r.pool = [];
+    return;
+  }
   if (a.type === "heartbeat") return;
   if (a.type === "leave") {
     p.seen = 0;
@@ -506,7 +560,12 @@ export function act(
         COPY.errors.minimum,
       );
       requireThat(library.length > 0, COPY.errors.images);
+      requireThat(
+        activeImages(library, r.deck).length > 0,
+        COPY.errors.emptyDeck,
+      );
       reset(r);
+      r.gameId = crypto.randomUUID();
       phase(r, "starting", now, 5);
     } else if (a.type === "lobby") {
       requireThat(r.phase === "game_over", COPY.errors.finish);
@@ -595,7 +654,7 @@ export function act(
   }
   throw new Error(COPY.errors.unknown);
 }
-export function view(r: Room, id: string, now: number) {
+export function view(r: Room, id: string, now: number, library: string[] = []) {
   const p = r.players.find((p) => p.id === id)!;
   const reveal = [
     "round_winner",
@@ -612,6 +671,10 @@ export function view(r: Room, id: string, now: number) {
   ].includes(r.phase);
   return {
     id: r.id,
+    gameId: r.gameId ?? r.epoch,
+    deck: r.deck ?? defaultDeck(),
+    activeImageCount: activeImages(library, r.deck).length,
+    imageCount: library.length,
     code: r.code,
     version: r.version,
     phase: r.phase,

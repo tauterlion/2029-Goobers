@@ -1,6 +1,13 @@
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+const imageCount = JSON.parse(
+  await readFile(
+    new URL("../src/generated/assets.json", import.meta.url),
+    "utf8",
+  ),
+).images.length;
 const base = process.env.TEST_URL ?? "http://localhost:3000";
 const browser = await chromium.launch({
   headless: true,
@@ -25,6 +32,10 @@ async function screenshot(page, name) {
 }
 try {
   await pages[0].goto(base);
+  assert.equal(
+    await pages[0].getByLabel("Theme", { exact: true }).inputValue(),
+    "original",
+  );
   await screenshot(pages[0], "desktop-home");
   await pages[0].getByLabel("YOUR NAME").fill("Alex");
   await pages[0].getByRole("button", { name: "CREATE A ROOM" }).click();
@@ -44,6 +55,64 @@ try {
     document.querySelector(".player-cloud")?.textContent?.includes("Jules"),
   );
   await screenshot(pages[0], "desktop-lobby");
+  // Personal themes never submit a game action and remain independent.
+  const themeWrites = [];
+  const onRequest = (req) => {
+    if (req.url().endsWith("/api/game") && req.method() === "POST") {
+      const data = req.postDataJSON();
+      if (!["read", "heartbeat"].includes(data.type))
+        themeWrites.push(data.type);
+    }
+  };
+  pages[1].on("request", onRequest);
+  await pages[1].getByLabel("Theme", { exact: true }).selectOption("coffee");
+  assert.equal(
+    await pages[0].getByLabel("Theme", { exact: true }).inputValue(),
+    "original",
+  );
+  assert.deepEqual(themeWrites, []);
+  pages[1].off("request", onRequest);
+  await pages[1].reload();
+  await pages[1].locator(".code-display").waitFor({ timeout: 35000 });
+  await pages[1].waitForFunction(
+    () => !document.querySelector(".connection-overlay"),
+  );
+  await pages[1].waitForFunction(
+    () => document.documentElement.dataset.theme === "coffee",
+  );
+  await pages[2].getByLabel("Theme", { exact: true }).selectOption("dark");
+  await pages[3].getByLabel("Theme", { exact: true }).selectOption("vibrant");
+  await pages[0]
+    .getByRole("button", { name: "EDIT DECK", exact: true })
+    .click();
+  await pages[0]
+    .getByRole("button", { name: "WHITELIST", exact: true })
+    .click();
+  await pages[0]
+    .getByText(`0 / ${imageCount} IMAGES ACTIVE`, { exact: true })
+    .waitFor();
+  assert.equal(
+    await pages[0].getByRole("button", { name: "START GAME" }).isDisabled(),
+    true,
+  );
+  await pages[0]
+    .getByText("Select at least one image before starting.", { exact: true })
+    .waitFor();
+  await pages[0].getByRole("button", { name: "Image 1", exact: true }).click();
+  await pages[0]
+    .getByText(`1 / ${imageCount} IMAGES ACTIVE`, { exact: true })
+    .waitFor();
+  await pages[0]
+    .getByText("This deck may repeat images during the game.", { exact: true })
+    .waitFor();
+  const deckImage = await pages[0]
+    .getByRole("button", { name: "Image 1", exact: true })
+    .locator("img")
+    .getAttribute("src");
+  await screenshot(pages[0], "desktop-deck");
+  await pages[0]
+    .getByRole("button", { name: "CLOSE DECK", exact: true })
+    .click();
   const isLocal = await pages[0]
     .getByText("LOCAL TEST MODE", { exact: false })
     .count();
@@ -58,9 +127,23 @@ try {
     console.log("PASS: Supabase reaction broadcast reached another browser.");
   }
   await pages[0].getByLabel("Rounds", { exact: true }).selectOption("1");
+  await pages[0].waitForFunction(
+    () =>
+      document.querySelector('select[aria-label="Rounds"]').value === "1" &&
+      !document.querySelector("button.primary:disabled"),
+  );
   await pages[0].getByLabel("Caption timer").selectOption("60");
+  await pages[0].waitForFunction(
+    () =>
+      document.querySelector('select[aria-label="Caption timer"]').value ===
+        "60" && !document.querySelector("button.primary:disabled"),
+  );
   await pages[0].getByRole("button", { name: "START GAME" }).click();
   await pages[0].getByLabel("Your caption").waitFor({ timeout: 20000 });
+  assert.equal(
+    await pages[0].locator(".meme-frame img").getAttribute("src"),
+    deckImage,
+  );
   const caption = pages[0].getByLabel("Your caption");
   assert.equal(await caption.getAttribute("maxlength"), "100");
   await caption.pressSequentially("x".repeat(105));
@@ -97,8 +180,14 @@ try {
     .getByLabel("Your caption")
     .fill("When the group project has one brain cell");
   await pages[0].getByRole("button", { name: "SUBMIT CAPTION" }).click();
+  await pages[0]
+    .getByText("Submitted. You can edit until captioning closes.", {
+      exact: true,
+    })
+    .waitFor();
   await pages[0].reload();
-  await pages[0].getByLabel("Your caption").waitFor({ timeout: 10000 });
+  // A lost/raced pagehide release can require the existing 25-second lease.
+  await pages[0].getByLabel("Your caption").waitFor({ timeout: 35000 });
   assert.equal(
     await pages[0].getByLabel("Your caption").inputValue(),
     "When the group project has one brain cell",
@@ -124,7 +213,7 @@ try {
   assert.ok(hostPage, "A connected host must control the slideshow");
   for (let i = 0; i < 4; i++) {
     const next = hostPage.getByRole("button", {
-      name: i === 3 ? "TIME TO VOTE" : "NEXT MEME",
+      name: i === 3 ? "TIME TO DECIDE…" : "NEXT UP…!",
     });
     await next.click();
   }
@@ -132,9 +221,37 @@ try {
   await screenshot(pages[0], "desktop-voting");
   await pages[1].getByText("TIME TO").waitFor();
   await screenshot(pages[1], "mobile-voting");
-  for (const p of pages) {
-    await p.locator(".vote-card:not([disabled])").first().click();
+  // Choose cyclic targets: exactly one vote per caption, a guaranteed four-way tie.
+  await pages[0]
+    .locator(".vote-card")
+    .filter({ hasText: "This meeting could have been a meme 1" })
+    .click();
+  await pages[0].locator(".vote-card.selected").waitFor();
+  for (const theme of ["original", "light", "dark", "coffee", "vibrant"]) {
+    await pages[0].getByLabel("Theme", { exact: true }).selectOption(theme);
+    await screenshot(pages[0], `theme-${theme}-voting`);
+    const colors = await pages[0]
+      .locator(".vote-card.selected")
+      .evaluate((el) => ({
+        color: getComputedStyle(el).color,
+        background: getComputedStyle(el).backgroundColor,
+      }));
+    assert.notEqual(colors.color, colors.background);
   }
+  for (let i = 1; i < 4; i++)
+    await pages[i]
+      .locator(".vote-card")
+      .filter({
+        hasText:
+          i === 3
+            ? "When the group project has one brain cell"
+            : `This meeting could have been a meme ${i + 1}`,
+      })
+      .click();
+  await pages[0].locator(".tie-stage").waitFor({ timeout: 12000 });
+  assert.equal(await pages[0].locator(".tie-stage .winner-card").count(), 4);
+  await screenshot(pages[0], "desktop-tie");
+  await screenshot(pages[1], "mobile-tie");
   await pages[0].getByText("CURRENT").waitFor({ timeout: 15000 });
   await screenshot(pages[0], "desktop-leaderboard");
   await hostPage.getByRole("button", { name: "FINAL RESULTS" }).click();
@@ -146,6 +263,16 @@ try {
   await hostPage.getByRole("button", { name: "REMATCH" }).waitFor();
   await hostPage.getByRole("button", { name: "RETURN TO LOBBY" }).click();
   await pages[0].getByText("ROOM CODE").waitFor();
+  await hostPage
+    .getByRole("button", { name: "EDIT DECK", exact: true })
+    .waitFor();
+  await pages[0]
+    .getByText(`1 / ${imageCount} IMAGES ACTIVE`, { exact: true })
+    .waitFor();
+  assert.equal(
+    await pages[1].getByLabel("Theme", { exact: true }).inputValue(),
+    "coffee",
+  );
   await screenshot(pages[1], "mobile-lobby");
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
@@ -155,7 +282,17 @@ try {
     viewport: { width: 390, height: 844 },
   });
   await mobile.goto(base);
-  await screenshot(mobile, "mobile-home");
+  for (const theme of ["original", "light", "dark", "coffee", "vibrant"]) {
+    await mobile.getByLabel("Theme", { exact: true }).selectOption(theme);
+    await screenshot(mobile, `mobile-home-${theme}`);
+    assert.equal(
+      await mobile.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+      `${theme} mobile overflow`,
+    );
+  }
   assert.equal(
     await mobile.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -163,6 +300,10 @@ try {
     false,
     "Mobile horizontal overflow",
   );
+} catch (error) {
+  await screenshot(pages[0], "smoke-failure");
+  console.error((await pages[0].locator("body").innerText()).slice(0, 2500));
+  throw error;
 } finally {
   await browser.close();
 }

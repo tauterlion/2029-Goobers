@@ -48,7 +48,11 @@ export function useGameAudio(
     if (old?.epoch !== state.epoch) {
       played.current.clear();
       cue(state.phase === "starting" ? "game_start" : state.phase);
-      const sound = phases[state.phase];
+      const sound =
+        state.phase === "round_winner" &&
+        state.results.filter((r) => r.winner).length > 1
+          ? "round_tie"
+          : phases[state.phase];
       if (sound) sfx(sound, true);
       if (old?.phase === "starting" && state.phase === "round_intro")
         sfx("countdown_go", true);

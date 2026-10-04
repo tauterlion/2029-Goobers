@@ -1,0 +1,314 @@
+:root {
+  color-scheme: light;
+  --accent-ink: #222321;
+  --warning-ink: #8a3b18;
+  --line: #cccebe;
+  --focus: #8052d9;
+  --input: #fffdf7;
+  --heading-accent: #7960b1;
+  --ambient-line: #25252312;
+  --effect: #b4a0e0;
+  --scribble: #baa6e7;
+  --surface: #fbf9f0;
+  --muted: #66675e;
+  --muted-secondary: #67695f;
+  --muted-subtle: #686b61;
+  --divider: #cecec4;
+  --grave-bg: #242329;
+  --grave-ink: #faf7ec;
+  --danger: #ff9879;
+  --card: #fffef8;
+  --footer-line: #c8c8ba;
+  --ranking: #fffef7;
+  --breakdown: #e8e2f5;
+  --gold: #ffdb8b;
+  --error: #ffd1bf;
+  --overlay: #222321dd;
+  --urgent: #fff0d8;
+  --winner-bg: #e1edbc;
+  --podium-bg: #e5ddf5;
+}
+
+:root[data-theme="light"] {
+  --paper: #ffffff;
+  --ink: #172537;
+  --lime: #b8f546;
+  --purple: #c4b4ff;
+  --pink: #ffaecf;
+  --input: #ffffff;
+  --surface: #f3f7ff;
+  --card: #ffffff;
+  --ranking: #ffffff;
+  --muted: #46536a;
+  --muted-secondary: #46536a;
+  --muted-subtle: #46536a;
+  --line: #bdcce0;
+  --divider: #bdcce0;
+  --footer-line: #bdcce0;
+  --focus: #6441c8;
+  --heading-accent: #6441c8;
+  --effect: #9272e5;
+  --scribble: #9272e5;
+  --breakdown: #eee7ff;
+  --grave-bg: #202e47;
+  --grave-ink: #ffffff;
+  --winner-bg: #eefcda;
+  --podium-bg: #f1eaff;
+  --overlay: #172537dd;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #090b10;
+  --ink: #f5f4ec;
+  --lime: #c3fc71;
+  --purple: #c3abff;
+  --pink: #ffa7cb;
+  --input: #171b24;
+  --surface: #111620;
+  --card: #181e2a;
+  --ranking: #181e2a;
+  --muted: #c3c9d5;
+  --muted-secondary: #c3c9d5;
+  --muted-subtle: #c3c9d5;
+  --line: #697488;
+  --divider: #697488;
+  --footer-line: #697488;
+  --ambient-line: #e1eaff22;
+  --focus: #e0caff;
+  --heading-accent: #c3abff;
+  --effect: #c3abff;
+  --scribble: #ffa7cb;
+  --warning-ink: #ffbd87;
+  --breakdown: #342845;
+  --error: #512b25;
+  --urgent: #382b1c;
+  --grave-bg: #211730;
+  --grave-ink: #f8edff;
+  --winner-bg: #182610;
+  --podium-bg: #261b38;
+  --overlay: #000000e6;
+}
+:root[data-theme="coffee"] {
+  --paper: #efe1ca;
+  --ink: #362218;
+  --lime: #e3b777;
+  --purple: #cfaa90;
+  --pink: #e9ad94;
+  --accent-ink: #302017;
+  --input: #fff7e9;
+  --surface: #f7e9d3;
+  --card: #fff3e0;
+  --ranking: #fff3e0;
+  --muted: #695040;
+  --muted-secondary: #695040;
+  --muted-subtle: #695040;
+  --line: #b79a7b;
+  --divider: #b79a7b;
+  --footer-line: #b79a7b;
+  --ambient-line: #613d2420;
+  --focus: #865024;
+  --heading-accent: #87532e;
+  --effect: #bd865b;
+  --scribble: #bd865b;
+  --warning-ink: #843c1a;
+  --breakdown: #e4cdb7;
+  --gold: #ebc170;
+  --error: #f6c4a8;
+  --urgent: #f7d6a5;
+  --danger: #eb9b70;
+  --grave-bg: #38271e;
+  --grave-ink: #ffedcf;
+  --winner-bg: #e5d0ab;
+  --podium-bg: #e4cbb5;
+  --overlay: #302017dd;
+}
+:root[data-theme="vibrant"] {
+  --paper: #391580;
+  --ink: #fff9ee;
+  --lime: #d5ff00;
+  --purple: #bd9bff;
+  --pink: #ff8dcf;
+  --accent-ink: #25103c;
+  --input: #260a62;
+  --surface: #4a1e96;
+  --card: #291060;
+  --ranking: #291060;
+  --muted: #f3dbff;
+  --muted-secondary: #f3dbff;
+  --muted-subtle: #f3dbff;
+  --line: #d99eff;
+  --divider: #d99eff;
+  --footer-line: #d99eff;
+  --ambient-line: #ffe50044;
+  --focus: #00ffd1;
+  --heading-accent: #d5ff00;
+  --effect: #00ffd1;
+  --scribble: #ff8dcf;
+  --warning-ink: #ffdf7a;
+  --breakdown: #682c97;
+  --gold: #ffe900;
+  --error: #85254e;
+  --urgent: #712459;
+  --danger: #ff9980;
+  --grave-bg: #0d294b;
+  --grave-ink: #8dfff0;
+  --winner-bg: #542095;
+  --podium-bg: #642480;
+  --overlay: #190533e6;
+}
+
+button {
+  color: inherit;
+}
+.primary,
+.code-display,
+.timer,
+.winner-card,
+.rank:first-child,
+.award,
+.entry-top,
+.sticker,
+.marquee,
+.doodle-face,
+.gag.pin,
+.player-float > button:first-child,
+.podium-place > b,
+.help,
+.vanished,
+.vote-card.selected {
+  color: var(--accent-ink);
+}
+.theme-selector {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.theme-selector select {
+  width: 105px;
+  min-height: 42px;
+  padding: 8px;
+  font-size: 12px;
+}
+.deck-editor {
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+}
+.deck-summary,
+.deck-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+.deck-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.deck-toolbar button,
+.deck-pages button {
+  font-size: 11px;
+  padding: 10px;
+}
+.deck-toolbar button[aria-pressed="true"] {
+  background: var(--lime);
+  color: var(--accent-ink);
+}
+.deck-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.deck-grid button {
+  padding: 5px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.deck-grid img {
+  width: 100%;
+  height: 100px;
+  object-fit: contain;
+}
+.deck-grid span {
+  font-size: 9px;
+}
+.deck-grid .enabled {
+  border-color: var(--ink);
+}
+.deck-grid .excluded {
+  border-style: dashed;
+}
+.deck-grid .excluded img {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+.deck-grid button:disabled {
+  opacity: 1;
+}
+.deck-grid button[aria-pressed="true"] span {
+  background: var(--lime);
+  color: var(--accent-ink);
+}
+.deck-warning {
+  color: var(--warning-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+.tie-stage {
+  position: relative;
+  isolation: isolate;
+}
+.tie-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 -5vw;
+  z-index: -1;
+  opacity: 0.25;
+  background: repeating-conic-gradient(
+    from 15deg,
+    var(--purple) 0deg 15deg,
+    transparent 15deg 30deg
+  );
+}
+.tie-stage > h1 {
+  font-size: clamp(140px, 22vw, 280px);
+  line-height: 0.85;
+  text-shadow: 6px 6px 0 var(--heading-accent);
+  animation: pop 0.4s ease-out;
+}
+.tie-stage .winner-card {
+  transform: none;
+  flex: 1 1 240px;
+  max-width: 360px;
+  background: var(--purple);
+}
+@media (max-width: 650px) {
+  .header-right {
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .theme-selector > span {
+    display: none;
+  }
+  .theme-selector select {
+    width: 87px;
+    padding: 6px;
+  }
+  .deck-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .deck-grid img {
+    height: 75px;
+  }
+  .tie-stage > h1 {
+    font-size: 150px;
+  }
+}

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./themes.css";
+import { COPY } from "@/game/copy";
 export const metadata: Metadata = {
-  title: "2029 Goobers — terrible captions. excellent company.",
-  description: "A private meme-caption party for 4–12 friends.",
+  title: `2029 Goobers — ${COPY.site.tagline}`,
+  description: COPY.site.description,
   robots: { index: false, follow: false },
 };
 export default function Layout({ children }: { children: React.ReactNode }) {

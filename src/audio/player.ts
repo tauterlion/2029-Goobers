@@ -29,6 +29,7 @@ export const SFX_CUES = [
   "unanimous",
   "streak",
   "round_winner",
+  "round_tie",
   "leaderboard",
   "third_place",
   "second_place",

@@ -3,6 +3,7 @@ import {
   act,
   advance,
   captionValid,
+  completeGame,
   drawImage,
   fillVotes,
   join,
@@ -111,6 +112,7 @@ describe("room and identity", () => {
     ).toThrow();
     r.players[0].score = 500;
     r.used = ["x"];
+    completeGame(r);
     phase(r, "game_over", time);
     act(r, r.players[0], { type: "rematch", epoch: r.epoch }, time, library);
     expect(r.players[0].score).toBe(0);
@@ -139,6 +141,7 @@ describe("images", () => {
   it("avoids the previous game while fresh images exist", () => {
     const r = setup();
     r.previous = library.slice(0, 90);
+    r.recentGames = [r.previous];
     expect(
       Array.from({ length: 10 }, () => drawImage(r, "p", library)).some((x) =>
         r.previous.includes(x),

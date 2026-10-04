@@ -1,4 +1,6 @@
-# Verification — October 4, 2026
+# V1.1 verification — October 4, 2026
+
+For the completed personalization update, see [V1.2 verification](VERIFICATION-V1.2.md). The results below describe the earlier V1.1 run.
 
 ## Update delivered
 

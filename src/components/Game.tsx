@@ -8,6 +8,9 @@ import { Action, COLORS, GameView, visibleLength } from "@/game/engine";
 import { sfx, setMuted, unlock } from "@/audio/manager";
 import { useGameAudio } from "@/audio/useGameAudio";
 import { CAPTION_MAX, truncateCaption } from "@/game/caption";
+import { eventCopy, interpolate } from "@/game/variants";
+import ThemeSelector from "./ThemeSelector";
+import DeckEditor from "./DeckEditor";
 type Session = { token: string; connection: string; code: string };
 const emojis = ["😂", "💀", "🔥", "😭", "🙏", "🗿", "🤨", "👏"];
 export default function Game() {
@@ -274,10 +277,10 @@ export default function Game() {
             <b>{1 + standings.filter((q) => q.score > p.score).length}</b>
             <span>
               {p.name}
-              {p.id === state?.me ? " (you)" : ""}
+              {p.id === state?.me ? ` ${COPY.leaderboard.you}` : ""}
               <small>
                 {p.streak > 1
-                  ? `🔥 STREAK ×${p.streak}`
+                  ? interpolate(COPY.leaderboard.streak, { X: p.streak })
                   : i === standings.length - 1
                     ? COPY.leaderboard.consolation
                     : !p.online
@@ -334,6 +337,7 @@ export default function Game() {
           </span>
         </Link>
         <div className="header-right">
+          <ThemeSelector />
           {state && (
             <span className="room-tag">
               ROOM <b>{state.code}</b>
@@ -419,8 +423,12 @@ export default function Game() {
               {COPY.home.title2}
               <br />
               <em>{COPY.home.title3}</em>
-              <br />
-              <em>{COPY.home.title4}</em>
+              {COPY.home.title4 && (
+                <>
+                  <br />
+                  <em>{COPY.home.title4}</em>
+                </>
+              )}
             </h1>
             <p>
               {COPY.home.intro1}
@@ -450,8 +458,12 @@ export default function Game() {
               </span>
               <h2>
                 {COPY.home.entry1}
-                <br />
-                {COPY.home.entry2}
+                {COPY.home.entry2 && (
+                  <>
+                    <br />
+                    {COPY.home.entry2}
+                  </>
+                )}
               </h2>
               <label htmlFor="name">{COPY.home.name}</label>
               <input
@@ -595,9 +607,7 @@ export default function Game() {
                       </div>
                     ))}
                     {state.players.length < 4 && (
-                      <p className="need-players">
-                        {4 - state.players.length} {COPY.lobby.needed}
-                      </p>
+                      <p className="need-players">{COPY.lobby.needed}</p>
                     )}
                   </div>
                   {editing && (
@@ -628,7 +638,7 @@ export default function Game() {
                       {COPY.lobby.rounds}
                       <select
                         aria-label="Rounds"
-                        disabled={!isHost}
+                        disabled={!isHost || busy}
                         value={state.settings.rounds}
                         onChange={(e) =>
                           send({
@@ -649,7 +659,7 @@ export default function Game() {
                       {COPY.lobby.timer}
                       <select
                         aria-label="Caption timer"
-                        disabled={!isHost}
+                        disabled={!isHost || busy}
                         value={state.settings.seconds}
                         onChange={(e) =>
                           send({
@@ -672,7 +682,7 @@ export default function Game() {
                       {COPY.lobby.mode}
                       <select
                         aria-label="Image mode"
-                        disabled={!isHost}
+                        disabled={!isHost || busy}
                         value={state.settings.mode}
                         onChange={(e) =>
                           send({
@@ -695,6 +705,7 @@ export default function Game() {
                         className="primary"
                         disabled={
                           busy ||
+                          state.activeImageCount === 0 ||
                           state.players.filter((p) => p.online).length < 4
                         }
                         onClick={() => send({ type: "start" })}
@@ -702,9 +713,40 @@ export default function Game() {
                         {COPY.lobby.start}
                       </button>
                     ) : (
-                      <p>Waiting for {hostName} to start…</p>
+                      <p>
+                        {interpolate(COPY.lobby.waiting, {
+                          HOST: hostName ?? "",
+                        })}
+                      </p>
                     )}
                   </div>
+                  {isHost ? (
+                    <DeckEditor
+                      deck={state.deck}
+                      busy={busy}
+                      onChange={(deck) => send({ type: "deck", deck })}
+                    />
+                  ) : (
+                    <p className="subtle">
+                      {interpolate(COPY.deck.summary, {
+                        ACTIVE: state.activeImageCount,
+                        TOTAL: state.imageCount,
+                      })}
+                    </p>
+                  )}
+                  {state.activeImageCount === 0 ? (
+                    <p role="alert" className="deck-warning">
+                      {COPY.errors.emptyDeck}
+                    </p>
+                  ) : (
+                    state.activeImageCount <
+                      state.settings.rounds *
+                        (state.settings.mode === "same"
+                          ? 1
+                          : state.players.filter((p) => p.online).length) && (
+                      <p className="deck-warning">{COPY.deck.repeat}</p>
+                    )
+                  )}
                   <p className="subtle">{COPY.lobby.hint}</p>
                 </>
               )}
@@ -802,9 +844,15 @@ export default function Game() {
                                 : "caption-counter"
                             }
                           >
-                            {draft.length} / {CAPTION_MAX}
+                            {interpolate(COPY.caption.counter, {
+                              X: draft.length,
+                              MAX: CAPTION_MAX,
+                            })}
                           </span>{" "}
-                          · {state.submitted}/{state.eligible} SUBMITTED
+                          {interpolate(COPY.caption.submitted, {
+                            SUBMITTED: state.submitted,
+                            ELIGIBLE: state.eligible,
+                          })}
                         </span>
                         <button
                           className="primary"
@@ -844,8 +892,18 @@ export default function Game() {
                   </h1>
                   <p>
                     {state.gag?.kind === "grave"
-                      ? COPY.grave.subtitle
-                      : COPY.shame.subtitle}
+                      ? eventCopy(
+                          COPY.grave.subtitle,
+                          state,
+                          "grave",
+                          state.gag?.player,
+                        )
+                      : eventCopy(
+                          COPY.shame.subtitle,
+                          state,
+                          "shame",
+                          state.gag?.player,
+                        )}
                   </p>
                 </div>
               )}
@@ -878,8 +936,9 @@ export default function Game() {
                     </button>
                   ) : (
                     <p className="subtle">
-                      {COPY.slideshow.waiting} {hostName}{" "}
-                      {COPY.slideshow.waitingEnd}
+                      {interpolate(COPY.slideshow.waiting, {
+                        HOST: hostName ?? "",
+                      })}
                     </p>
                   )}
                 </div>
@@ -929,10 +988,7 @@ export default function Game() {
               {state.phase === "vote_reveal" && (
                 <div className="moment">
                   <p>{COPY.results.intro}</p>
-                  <h1>
-                    {COPY.results.verdict}
-                    <span className="blink">…</span>
-                  </h1>
+                  <h1>{COPY.results.verdict}</h1>
                   {state.captions.length === 0 ? (
                     <p>{COPY.results.empty}</p>
                   ) : state.captions.length === 1 ? (
@@ -954,16 +1010,24 @@ export default function Game() {
                 </div>
               )}
               {state.phase === "round_winner" && (
-                <div className="moment winner">
+                <div
+                  className={
+                    state.results.filter((r) => r.winner).length > 1
+                      ? "moment tie-stage"
+                      : "moment winner"
+                  }
+                >
                   <p>
                     {state.results.filter((r) => r.winner).length > 1
-                      ? COPY.results.tie
+                      ? COPY.tie.subtitle
                       : COPY.results.winnerIntro}
                   </p>
                   <h1>
                     {state.results.some((r) => r.winner)
-                      ? COPY.results.winner
-                      : COPY.results.noWinner}
+                      ? state.results.filter((r) => r.winner).length > 1
+                        ? COPY.tie.title
+                        : eventCopy(COPY.results.winner, state, "winner")
+                      : eventCopy(COPY.results.noWinner, state, "noWinner")}
                   </h1>
                   <div className="winner-grid">
                     {state.results
@@ -982,10 +1046,27 @@ export default function Game() {
                                   ?.name
                               }
                             </h3>
-                            <b>+{r.points} POINTS</b>
-                            {r.unanimous && <p>{COPY.results.unanimous}</p>}
+                            <b>
+                              {interpolate(COPY.results.points, {
+                                X: r.points,
+                              })}
+                            </b>
+                            {r.unanimous && (
+                              <p>
+                                {eventCopy(
+                                  COPY.results.unanimous,
+                                  state,
+                                  "unanimous",
+                                  r.player,
+                                )}
+                              </p>
+                            )}
                             {r.streak > 1 && (
-                              <p>🔥 STREAK ×{r.streak} · +10%</p>
+                              <p>
+                                {interpolate(COPY.results.streak, {
+                                  X: r.streak,
+                                })}
+                              </p>
                             )}
                           </div>
                         );
@@ -1025,7 +1106,9 @@ export default function Game() {
                     </button>
                   ) : (
                     <p>
-                      {COPY.leaderboard.waiting} {hostName}.
+                      {interpolate(COPY.leaderboard.waiting, {
+                        HOST: hostName ?? "",
+                      })}
                     </p>
                   )}
                   <div className="author-reveal">
@@ -1035,7 +1118,7 @@ export default function Game() {
                         <span>“{c.text}”</span>
                         <b>
                           {state.players.find((p) => p.id === c.author)?.name} ·{" "}
-                          {c.count} votes
+                          {interpolate(COPY.results.votes, { X: c.count ?? 0 })}
                         </b>
                       </div>
                     ))}
@@ -1102,7 +1185,7 @@ export default function Game() {
                     {state.best.map((b, i) => (
                       <div className="award best" key={i}>
                         <span>
-                          {COPY.awards.best} {b.votes} VOTES
+                          {interpolate(COPY.awards.best, { X: b.votes })}
                         </span>
                         {image(b.caption.image)}
                         <h2>“{b.caption.text}”</h2>
@@ -1155,7 +1238,7 @@ export default function Game() {
               )}
               {state.phase === "game_over" && (
                 <div className="leaderboard">
-                  <p>{COPY.end.intro}</p>
+                  <p>{eventCopy(COPY.end.intro, state, "gameOver")}</p>
                   <h1>
                     {COPY.end.title} <em>{COPY.end.accent}</em>
                   </h1>
@@ -1166,6 +1249,7 @@ export default function Game() {
                         className="primary"
                         disabled={
                           busy ||
+                          state.activeImageCount === 0 ||
                           state.players.filter((p) => p.online).length < 4
                         }
                         onClick={() => send({ type: "rematch" })}
@@ -1249,7 +1333,13 @@ function Confetti() {
           key={i}
           style={{
             left: `${i * 2}%`,
-            background: COLORS[i % COLORS.length],
+            background: [
+              "var(--lime)",
+              "var(--purple)",
+              "var(--pink)",
+              "var(--effect)",
+              "var(--gold)",
+            ][i % 5],
             animationDelay: `${(i % 9) * 0.13}s`,
             transform: `rotate(${i * 17}deg)`,
           }}

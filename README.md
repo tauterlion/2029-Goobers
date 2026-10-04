@@ -92,6 +92,20 @@ Expiry is approximately six hours of inactivity. Room creation opportunistically
 - **No voices:** expected when no recordings exist. Audio requires a user gesture and is entirely optional.
 - **Connection overlay:** restores state when the backend responds again; gameplay writes are blocked while the overlay is visible.
 
+## V1.2 personalization
+
+Edit the friend-group wording in `src/game/copy.ts`. It follows the supplied `2029 Goobers.docx`, including the intentional slang, punctuation and emoji. `src/game/variants.ts` hashes room ID, game instance ID, round, event type and relevant player ID using FNV-1a. All browsers derive the same flavor line for the same event; refresh and heartbeat updates do not reroll it. Critical rules and errors stay stable.
+
+Choose **Original, Light, Dark, Coffee or Vibrant** from the small header selector at any point. Palettes and theme-specific presentation live in `src/app/themes.css`, with shared layout in `globals.css`. The preference is stored under `goobers-theme` in that browser's localStorage. It is never sent as a game action or stored in Supabase. Private browsing or blocked/cleared storage can prevent persistence.
+
+The host can open **EDIT DECK** in the lobby. **USE ALL** enables the generated library; **BLACKLIST** excludes marked images; **WHITELIST** includes only marked images. SELECT ALL and CLEAR SELECTION operate on the entire library, including other thumbnail pages. The server stores `{ mode, images }` on the room and accepts only manifest paths. Empty decks block Start; any nonempty deck works, with a repeat warning when small. Deck, rounds, timer and image mode survive host transfer, rematch and lobby return. No uploads or accounts were added.
+
+The room keeps `recentGames`, up to three completed games of deduplicated image paths, newest first. Completion is archived once when leaving the final round leaderboard for the podium. Aborted games do not enter history. Selection consumes the current pool before repeating, avoids simultaneous duplicate assignments where possible, prefers images absent from recent history, then reuses the oldest historical candidates. Excluded and failed images remain excluded even during exhaustion. History survives deck edits, rematches and lobby return; it expires with the room.
+
+Shared first place now uses a dedicated **TIE** burst, oversized title and equal winner cards within the existing round-winner phase. Scoring, streaks and phase duration remain unchanged. An optional `public/audio/sfx/round_tie.mp3` hook is available; missing files stay silent. See `AUDIO.md`.
+
+No Supabase migration, dependency installation or Vercel environment change is required for V1.2. Rebuild/redeploy the app normally. The asset scanner currently indexes **120 images** and continues running before development/build.
+
 ## Verification status and boundaries
 
-See `VERIFICATION.md` for checks actually run. A local adapter cannot prove a remote Supabase migration, Realtime delivery, or Vercel deployment. Those require a configured project. There are no accounts, permanent histories, public galleries, or uploaded media management.
+See `VERIFICATION-V1.2.md` for current checks and `VERIFICATION.md` for V1.1 checks. A local adapter cannot prove a remote Supabase migration, Realtime delivery, or Vercel deployment. Those require a configured project. There are no accounts, permanent histories, public galleries, or uploaded media management.

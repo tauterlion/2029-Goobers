@@ -15,6 +15,12 @@ import { create, load, mutate, local } from "@/lib/store";
 import assets from "@/generated/assets.json";
 export const runtime = "nodejs";
 const schema = z.object({
+  deck: z
+    .object({
+      mode: z.enum(["all", "blacklist", "whitelist"]),
+      images: z.array(z.string().max(2000)).max(10000),
+    })
+    .optional(),
   type: z.string().max(30),
   code: z.string().max(8).optional(),
   token: z.string().uuid(),
@@ -42,7 +48,7 @@ export async function POST(req: NextRequest) {
       req.headers.get("origin") !== req.nextUrl.origin
     )
       return NextResponse.json({ error: COPY.errors.origin }, { status: 403 });
-    if (Number(req.headers.get("content-length")) > 10000)
+    if (Number(req.headers.get("content-length")) > 1_000_000)
       return NextResponse.json({ error: COPY.errors.large }, { status: 413 });
     const a = schema.parse(await req.json());
     const secret = digest(a.token);
@@ -58,7 +64,10 @@ export async function POST(req: NextRequest) {
         const p = join(r, a.name ?? "", secret, a.connection, now);
         try {
           await create(r);
-          return NextResponse.json({ state: view(r, p.id, now), local });
+          return NextResponse.json({
+            state: view(r, p.id, now, assets.images),
+            local,
+          });
         } catch (error) {
           if (
             (error as { code?: string }).code === "23505" ||
@@ -77,7 +86,10 @@ export async function POST(req: NextRequest) {
       if (!p) throw new Error(COPY.errors.session);
       if (p.connection !== a.connection && connected(p, now))
         throw new Error(COPY.errors.duplicateSession);
-      return NextResponse.json({ state: view(r, p.id, now), local });
+      return NextResponse.json({
+        state: view(r, p.id, now, assets.images),
+        local,
+      });
     }
     const { room, result } = await mutate(code, (r) => {
       let p = r.players.find((p) => p.secret === secret);
@@ -95,7 +107,10 @@ export async function POST(req: NextRequest) {
         act(r, p, a as Action, now, assets.images);
       return p.id;
     });
-    return NextResponse.json({ state: view(room, result, now), local });
+    return NextResponse.json({
+      state: view(room, result, now, assets.images),
+      local,
+    });
   } catch (error) {
     const message =
       error instanceof z.ZodError

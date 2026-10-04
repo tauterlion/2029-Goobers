@@ -22,6 +22,7 @@ voting_complete          vote_reveal
 score_tick               bonus_awarded
 unanimous                streak
 round_winner             leaderboard
+round_tie
 third_place              second_place
 first_place_build        first_place_reveal
 confetti                 rematch

@@ -10,7 +10,7 @@
   font-variant-numeric: tabular-nums;
 }
 .caption-counter.near-limit {
-  color: #8a3b18;
+  color: var(--warning-ink);
   font-weight: 800;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -26,7 +26,7 @@
 }
 .author-reveal > div {
   padding: 12px 0;
-  border-bottom: 1px solid #cccebe;
+  border-bottom: 1px solid var(--line);
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -81,7 +81,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 3px solid #8052d9;
+  outline: 3px solid var(--focus);
   outline-offset: 4px;
 }
 input,
@@ -89,7 +89,7 @@ textarea,
 select {
   border: 2px solid var(--ink);
   border-radius: 0;
-  background: #fffdf7;
+  background: var(--input);
   color: var(--ink);
   padding: 16px;
   width: 100%;
@@ -117,7 +117,7 @@ h1 {
 }
 h1 em {
   font-style: normal;
-  color: #7960b1;
+  color: var(--heading-accent);
 }
 p {
   line-height: 1.6;
@@ -190,7 +190,7 @@ header {
   position: absolute;
   width: 340px;
   height: 340px;
-  border: 1px solid #25252312;
+  border: 1px solid var(--ambient-line);
   border-radius: 50%;
   right: -200px;
   top: 320px;
@@ -213,7 +213,7 @@ header {
   top: 125px;
   font-size: 90px;
   transform: rotate(13deg);
-  color: #b4a0e0;
+  color: var(--effect);
   animation: turn 50s linear infinite;
 }
 .orbit {
@@ -227,7 +227,7 @@ header {
   left: 5%;
   bottom: 80px;
   font-size: 80px;
-  color: #baa6e7;
+  color: var(--scribble);
 }
 .landing {
   max-width: 1600px;
@@ -315,7 +315,7 @@ header {
 .entry {
   border: 2px solid var(--ink);
   box-shadow: 9px 9px 0 var(--ink);
-  background: #fbf9f0;
+  background: var(--surface);
   transform: rotate(1deg);
   align-self: center;
   max-width: 510px;
@@ -373,7 +373,7 @@ header {
   justify-content: space-between;
   font-size: 10px;
   margin: 9px 0 22px;
-  color: #66675e;
+  color: var(--muted);
 }
 .primary {
   background: var(--lime);
@@ -400,11 +400,11 @@ header {
   margin: 25px 0;
   font-size: 9px;
   font-weight: 700;
-  color: #66675e;
+  color: var(--muted);
 }
 .or span {
   height: 1px;
-  background: #cecec4;
+  background: var(--divider);
   flex: 1;
 }
 .join-row {
@@ -427,7 +427,7 @@ header {
   font-size: 10px;
   text-align: center;
   margin: 19px 0 0;
-  color: #67695f;
+  color: var(--muted-secondary);
 }
 .marquee {
   grid-column: 1/-1;
@@ -589,7 +589,7 @@ header {
 }
 .subtle {
   text-align: center;
-  color: #686b61;
+  color: var(--muted-subtle);
   font-size: 11px;
   margin: 20px 0;
 }
@@ -642,8 +642,8 @@ header {
   margin: 15px;
 }
 .gag.grave {
-  background: #242329;
-  color: #faf7ec;
+  background: var(--grave-bg);
+  color: var(--grave-ink);
   margin: 0 -5vw;
   padding: 45px 5vw;
 }
@@ -688,13 +688,13 @@ header {
   letter-spacing: 1px;
 }
 .timer.danger {
-  background: #ff9879;
+  background: var(--danger);
   animation: throb 0.7s infinite;
 }
 .meme-frame {
   max-width: 790px;
   margin: 0 auto;
-  background: #fffef8;
+  background: var(--card);
   border: 2px solid;
   box-shadow: 6px 6px 0;
   display: flex;
@@ -749,7 +749,7 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid #c8c8ba;
+  border-top: 1px solid var(--footer-line);
   gap: 10px;
   margin-top: 36px;
   padding: 18px 0;
@@ -803,7 +803,7 @@ header {
   flex-direction: column;
   gap: 12px;
   padding: 22px;
-  background: #fffef8;
+  background: var(--card);
   box-shadow: 3px 3px 0;
 }
 .vote-card strong {
@@ -836,7 +836,7 @@ header {
 .tally {
   border: 2px solid;
   padding: 20px;
-  background: #fffef8;
+  background: var(--card);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -896,7 +896,7 @@ header {
   align-items: center;
   gap: 20px;
   padding: 12px 22px;
-  background: #fffef7;
+  background: var(--ranking);
   border: 2px solid;
   text-align: left;
   box-shadow: 3px 3px 0;
@@ -938,7 +938,7 @@ header {
   font-size: 11px;
 }
 .round-breakdown span {
-  background: #e8e2f5;
+  background: var(--breakdown);
   padding: 10px;
 }
 .finale {
@@ -1046,7 +1046,7 @@ header {
 }
 .award.best {
   grid-column: span 2;
-  background: #ffdb8b;
+  background: var(--gold);
 }
 .award.best h2 {
   font-family: "DM Sans";
@@ -1080,7 +1080,7 @@ header {
   top: 15px;
   left: 50%;
   transform: translateX(-50%);
-  background: #ffd1bf;
+  background: var(--error);
   border: 2px solid;
   box-shadow: 4px 4px 0;
   padding: 15px;
@@ -1119,7 +1119,7 @@ header {
 .connection-overlay {
   position: fixed;
   inset: 0;
-  background: #222321dd;
+  background: var(--overlay);
   display: grid;
   place-items: center;
   z-index: 35;
@@ -1171,13 +1171,13 @@ header {
   border: 0;
 }
 .urgent {
-  background: #fff0d8;
+  background: var(--urgent);
 }
 .phase-round_winner {
-  background: #e1edbc;
+  background: var(--winner-bg);
 }
 .phase-final_podium {
-  background: #e5ddf5;
+  background: var(--podium-bg);
 }
 .blink {
   animation: throb 1s infinite;

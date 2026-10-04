@@ -33,13 +33,16 @@ const overflow = person();
 overflow.code = s.code;
 assert.match(
   await call(overflow, { type: "join", name: "Extra" }, true),
-  /full/,
+  /FULL/,
 );
 const duplicate = { ...host, connection: crypto.randomUUID() };
-assert.match(await call(duplicate, { type: "resume" }, true), /another tab/);
+assert.match(
+  await call(duplicate, { type: "resume" }, true),
+  /SESSION ALREADY OPEN/,
+);
 const victim = s.players.find((p) => p.name === "Guest 11");
 await call(host, { type: "kick", target: victim.id });
-assert.match(await call(all[11], { type: "heartbeat" }, true), /session ended/);
+assert.match(await call(all[11], { type: "heartbeat" }, true), /SESSION ENDED/);
 await call(all[11], { type: "join", name: "Returned" });
 s = await call(host, {
   type: "settings",
@@ -50,11 +53,19 @@ const old = s.epoch;
 s = await call(host, { type: "skip", epoch: s.epoch });
 assert.match(
   await call(host, { type: "skip", epoch: old }, true),
-  /already moved/,
+  /PHASE ALREADY CLOSED/,
 );
 s = await call(host, { type: "skip", epoch: s.epoch });
 s = await call(host, { type: "skip", epoch: s.epoch });
 assert.equal(s.phase, "captioning");
+assert.match(
+  await call(
+    host,
+    { type: "caption", text: "x".repeat(101), epoch: s.epoch },
+    true,
+  ),
+  /3–100/,
+);
 const views = await Promise.all(all.map((p) => call(p, { type: "read" })));
 assert.equal(new Set(views.map((v) => v.image)).size, 12);
 assert.equal(
@@ -78,7 +89,8 @@ assert.match(
   await call(host, { type: "vote", epoch: s.epoch, target: own.id }, true),
   /yourself/,
 );
-await Promise.all(
+const closingDeadline = s.deadline;
+const voteResponses = await Promise.all(
   all.map((p, i) =>
     call(p, {
       type: "vote",
@@ -89,6 +101,12 @@ await Promise.all(
 );
 s = await call(host, { type: "read" });
 assert.equal(s.phase, "vote_reveal");
+assert.equal(
+  voteResponses.filter((v) => v.phase === "vote_reveal").length,
+  1,
+  "Exactly one final vote closes the phase",
+);
+assert.ok(s.serverTime < closingDeadline, "Voting closes before timeout");
 assert.ok(
   s.players.every((p) => p.score === 0 && p.stats.votes === 0),
   "Tally must not reveal authors via scores",

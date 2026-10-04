@@ -22,21 +22,24 @@ const images = await scan(
   "public/game-images",
   /\.(png|jpe?g|webp|gif|avif|svg)$/i,
 );
-const announcer = {};
-for (const file of await scan(
-  "public/audio/announcer",
-  /\.(webm|mp3|ogg|wav|m4a)$/i,
-)) {
-  const cue = decodeURIComponent(file.split("/").at(-1))
-    .replace(/\.[^.]+$/, "")
-    .replace(/_\d+$/, "");
-  (announcer[cue] ??= []).push(file);
+async function audioMap(folder) {
+  const result = {};
+  for (const file of await scan(folder, /\.(webm|mp3|ogg|wav|m4a|aac)$/i)) {
+    const cue = decodeURIComponent(file.split("/").at(-1))
+      .replace(/\.[^.]+$/, "")
+      .replace(/_\d+$/, "");
+    (result[cue] ??= []).push(file);
+  }
+  return result;
 }
+const announcer = await audioMap("public/audio/announcer");
+const sfx = await audioMap("public/audio/sfx");
+const music = await audioMap("public/audio/music");
 await mkdir("src/generated", { recursive: true });
 await writeFile(
   "src/generated/assets.json",
-  JSON.stringify({ images, announcer }, null, 2) + "\n",
+  JSON.stringify({ images, announcer, sfx, music }, null, 2) + "\n",
 );
 console.log(
-  `Indexed ${images.length} images and ${Object.keys(announcer).length} optional voice cues.`,
+  `Indexed ${images.length} images, ${Object.keys(sfx).length} SFX cues, ${Object.keys(music).length} music tracks and ${Object.keys(announcer).length} optional voice cues.`,
 );

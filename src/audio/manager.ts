@@ -1,12 +1,14 @@
 import assets from "@/generated/assets.json";
+import { AudioPlayer, SfxCue, MusicCue } from "./player";
+const player = new AudioPlayer(assets);
 let context: AudioContext | null = null;
 let muted = false;
-let voice: HTMLAudioElement | null = null;
 export function setMuted(value: boolean) {
   muted = value;
-  if (value) voice?.pause();
+  player.setMuted(value);
 }
 export function unlock() {
+  player.unlock();
   try {
     context ??= new AudioContext();
     void context.resume();
@@ -27,11 +29,8 @@ export function tone(urgent = false) {
   } catch {}
 }
 export function cue(name: string) {
-  if (muted) return;
-  const files = (assets.announcer as Record<string, string[]>)[name];
-  if (!files?.length) return;
-  voice?.pause();
-  voice = new Audio(files[Math.floor(Math.random() * files.length)]);
-  voice.volume = 0.8;
-  void voice.play().catch(() => {});
+  player.announcer(name);
 }
+export const sfx = (name: SfxCue, important = false) =>
+  player.sfx(name, important);
+export const music = (name: MusicCue | null) => player.music(name);

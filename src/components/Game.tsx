@@ -1,9 +1,13 @@
 "use client";
+import { COPY } from "@/game/copy";
+
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Action, COLORS, GameView, visibleLength } from "@/game/engine";
-import { cue, setMuted, tone, unlock } from "@/audio/manager";
+import { sfx, setMuted, unlock } from "@/audio/manager";
+import { useGameAudio } from "@/audio/useGameAudio";
+import { CAPTION_MAX, truncateCaption } from "@/game/caption";
 type Session = { token: string; connection: string; code: string };
 const emojis = ["😂", "💀", "🔥", "😭", "🙏", "🗿", "🤨", "👏"];
 export default function Game() {
@@ -11,6 +15,7 @@ export default function Game() {
     [name, setName] = useState(""),
     [code, setCode] = useState(""),
     [error, setError] = useState(""),
+    [errorCode, setErrorCode] = useState(""),
     [busy, setBusy] = useState(false),
     [lost, setLost] = useState(false),
     [local, setLocal] = useState(false),
@@ -49,7 +54,8 @@ export default function Game() {
           body: JSON.stringify({ ...session.current, ...action }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        if (!response.ok)
+          throw Object.assign(new Error(data.error), { code: data.code });
         const s = data.state as GameView;
         offset.current = s.serverTime - Date.now();
         if (
@@ -69,13 +75,17 @@ export default function Game() {
         setLost(!data.local && !realtimeHealthy.current);
         if (action.type === "resume") setError("");
         if (!quiet) setError("");
+        if (action.type === "caption") sfx("caption_submit");
+        if (action.type === "rematch") sfx("rematch", true);
         return s;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Connection lost.";
-        if (/another tab|session ended|find that room/.test(msg)) {
+        const msg = e instanceof Error ? e.message : COPY.errors.service;
+        const code = (e as { code?: string })?.code ?? "service";
+        setErrorCode(code);
+        if (["duplicateSession", "session", "notFound"].includes(code)) {
           setError(msg);
           setLost(false);
-          if (/session ended|find that room/.test(msg) && current.current) {
+          if (["session", "notFound"].includes(code) && current.current) {
             current.current = null;
             setState(null);
             session.current.code = "";
@@ -188,38 +198,24 @@ export default function Game() {
     });
   }, [clock, state?.deadline, request]);
   useEffect(() => {
-    setDraft(state?.ownCaption ?? "");
+    setDraft(truncateCaption(state?.ownCaption ?? ""));
   }, [state?.round, state?.ownCaption]);
-  useEffect(() => {
-    if (state) cue(state.phase === "starting" ? "game_start" : state.phase);
-  }, [state?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (state?.phase === "caption_resolution")
-      cue(state.gag?.kind === "grave" ? "disconnect_grave" : "pin_of_shame");
-    if (state?.phase === "round_winner") {
-      if (state.results.some((r) => r.unanimous)) cue("unanimous");
-      else if (state.results.some((r) => r.streak > 1 && r.winner))
-        cue("win_streak");
-    }
-  }, [state?.epoch, state?.index]); // eslint-disable-line react-hooks/exhaustive-deps
   const now = Math.max(state?.started ?? 0, clock + offset.current),
     remaining = state?.deadline
       ? Math.max(0, Math.ceil((state.deadline - now) / 1000))
       : 0;
-  useEffect(() => {
-    if (state?.phase === "captioning" && remaining > 0 && remaining <= 10) {
-      tone(remaining <= 5);
-      if (remaining === 10) cue("urgency_10");
-      if (remaining === 5) cue("urgency_5");
-    }
-  }, [remaining, state?.phase]);
+  useGameAudio(state, remaining, now);
   const send = (a: Action) => {
     unlock();
-    void request({ ...a, epoch: state?.epoch });
+    void request({ ...a, epoch: state?.epoch }).then((result) => {
+      if (result && a.type === "vote")
+        sfx(state?.ownVote ? "vote_change" : "vote_select");
+    });
   };
   const react = (emoji: string) => {
     if (clock - lastReaction.current < 250) return;
     lastReaction.current = clock;
+    sfx("reaction");
     pushReaction(emoji);
     void channel.current?.send({
       type: "broadcast",
@@ -259,9 +255,9 @@ export default function Game() {
       <div className="image-fallback">
         🖼️
         <p>
-          The image has left the chat.
+          {COPY.common.fallback}
           <br />
-          Caption this extremely expensive blank canvas.
+          {COPY.common.fallbackHint}
         </p>
       </div>
     );
@@ -283,9 +279,9 @@ export default function Game() {
                 {p.streak > 1
                   ? `🔥 STREAK ×${p.streak}`
                   : i === standings.length - 1
-                    ? "Emotional support goober"
+                    ? COPY.leaderboard.consolation
                     : !p.online
-                      ? "Reconnecting…"
+                      ? COPY.common.reconnecting
                       : ""}
               </small>
             </span>
@@ -306,6 +302,15 @@ export default function Game() {
     <div
       className={`world phase-${state?.phase ?? "home"} ${remaining <= 10 && state?.phase === "captioning" ? "urgent" : ""}`}
       onPointerDown={unlock}
+      onClickCapture={(e) => {
+        if ((e.target as Element).closest("button:not(:disabled)"))
+          sfx("ui_click");
+      }}
+      onPointerOver={(e) => {
+        const button = (e.target as Element).closest("button:not(:disabled)");
+        if (button && !button.contains(e.relatedTarget as Node | null))
+          sfx("ui_hover");
+      }}
     >
       <div className="ambient" aria-hidden="true">
         <i />
@@ -362,15 +367,9 @@ export default function Game() {
           >
             ×
           </button>
-          <h2>One image. Zero dignity.</h2>
-          <p>
-            Write a caption. Watch the anonymous slideshow. React irresponsibly.
-            Vote for your favorite (except yourself).
-          </p>
-          <p>
-            Each vote = 25 points. All manual votes = +50%. Consecutive wins =
-            another +10%. The host runs the show.
-          </p>
+          <h2>{COPY.common.helpTitle}</h2>
+          <p>{COPY.common.help}</p>
+          <p>{COPY.common.scoring}</p>
         </aside>
       )}
       {error && (
@@ -379,9 +378,9 @@ export default function Game() {
           <button aria-label="Dismiss error" onClick={() => setError("")}>
             ×
           </button>
-          {/another tab/.test(error) && (
+          {errorCode === "duplicateSession" && (
             <button onClick={() => window.location.reload()}>
-              Try reconnecting
+              {COPY.common.retrySession}
             </button>
           )}
         </div>
@@ -389,10 +388,10 @@ export default function Game() {
       {lost && (
         <div className="connection-overlay">
           <div>
-            <h2>CONNECTION LOST</h2>
-            <p>Trying to reconnect… Your genius is safe.</p>
+            <h2>{COPY.common.lost}</h2>
+            <p>{COPY.common.recover}</p>
             <button onClick={() => void request({ type: "resume" }, true)}>
-              Retry now
+              {COPY.common.retry}
             </button>
             <button
               className="quiet"
@@ -403,7 +402,7 @@ export default function Game() {
                 );
               }}
             >
-              Leave session
+              {COPY.common.leaveSession}
             </button>
           </div>
         </div>
@@ -412,26 +411,26 @@ export default function Game() {
         <main className="landing">
           <section className="hero">
             <div className="eyebrow">
-              <span /> A VERY UNSERIOUS PARTY GAME
+              <span /> {COPY.home.eyebrow}
             </div>
             <h1>
-              TERRIBLE
+              {COPY.home.title1}
               <br />
-              CAPTIONS.
+              {COPY.home.title2}
               <br />
-              <em>EXCELLENT</em>
+              <em>{COPY.home.title3}</em>
               <br />
-              <em>COMPANY.</em>
+              <em>{COPY.home.title4}</em>
             </h1>
             <p>
-              Gather your favorite idiots.
+              {COPY.home.intro1}
               <br />
-              Make memes. Question your friendships.
+              {COPY.home.intro2}
             </p>
             <div className="hero-meta">
-              <span>4–12 PLAYERS</span>
-              <span>NO DOWNLOADS</span>
-              <span>JUST CHAOS</span>
+              <span>{COPY.home.players}</span>
+              <span>{COPY.home.downloads}</span>
+              <span>{COPY.home.tag}</span>
             </div>
             <div className="doodle-face" aria-hidden="true">
               <span>× &nbsp; ×</span>
@@ -440,25 +439,25 @@ export default function Game() {
           </section>
           <section className="entry">
             <div className="entry-top">
-              <span>THE GROUP CHAT, BUT WORSE.</span>
+              <span>{COPY.home.entryTop}</span>
               <span>↗</span>
             </div>
             <div className="entry-body">
               <span className="sticker">
-                YOUR BAD IDEAS
+                {COPY.home.sticker1}
                 <br />
-                BELONG HERE.
+                {COPY.home.sticker2}
               </span>
               <h2>
-                LET&apos;S GET
+                {COPY.home.entry1}
                 <br />
-                WEIRD.
+                {COPY.home.entry2}
               </h2>
-              <label htmlFor="name">WHAT DO WE CALL YOU?</label>
+              <label htmlFor="name">{COPY.home.name}</label>
               <input
                 id="name"
                 autoComplete="nickname"
-                placeholder="Your legendary name"
+                placeholder={COPY.home.namePlaceholder}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => {
@@ -466,7 +465,7 @@ export default function Game() {
                 }}
               />
               <div className="input-hint">
-                Emojis welcome. Ego optional.
+                {COPY.home.nameHint}
                 <span>{visibleLength(name)}/14</span>
               </div>
               <button
@@ -474,17 +473,17 @@ export default function Game() {
                 disabled={busy || !name.trim() || visibleLength(name) > 14}
                 onClick={() => enter("create")}
               >
-                CREATE A ROOM <span>↗</span>
+                {COPY.home.create} <span>↗</span>
               </button>
               <div className="or">
                 <span />
-                OR CRASH THE PARTY
+                {COPY.home.or}
                 <span />
               </div>
               <div className="join-row">
                 <input
                   aria-label="Room code"
-                  placeholder="ROOM CODE"
+                  placeholder={COPY.home.code}
                   maxLength={5}
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -496,19 +495,14 @@ export default function Game() {
                   disabled={busy || !name.trim() || code.length !== 5}
                   onClick={() => enter("join")}
                 >
-                  JOIN →
+                  {COPY.home.join}
                 </button>
               </div>
-              <p className="entry-note">
-                One host. One room code. Several questionable decisions.
-              </p>
+              <p className="entry-note">{COPY.home.note}</p>
             </div>
           </section>
           <div className="marquee">
-            <span>
-              WRITE SOMETHING STUPID ✳ MAKE YOUR FRIENDS LAUGH ✳ ABSOLUTELY NO
-              TALENT REQUIRED ✳{" "}
-            </span>
+            <span>{COPY.home.marquee} </span>
           </div>
         </main>
       ) : (
@@ -516,7 +510,7 @@ export default function Game() {
           <div className="phase-top">
             <span>
               {state.phase === "lobby"
-                ? "THE WAITING ROOM OF BAD DECISIONS"
+                ? COPY.lobby.title
                 : `ROUND ${state.round || "—"} / ${state.settings.rounds}`}
             </span>
             <span>
@@ -527,8 +521,8 @@ export default function Game() {
           {waiting ? (
             <section className="moment">
               <div className="mega-emoji">🎟️</div>
-              <h1>YOU&apos;RE IN!</h1>
-              <p>Joining next round… Warm up those two brain cells.</p>
+              <h1>{COPY.lobby.joining}</h1>
+              <p>{COPY.lobby.joiningHint}</p>
             </section>
           ) : (
             <section
@@ -539,15 +533,15 @@ export default function Game() {
                 <>
                   <div className="lobby-title">
                     <div>
-                      <div className="eyebrow">INVITE YOUR USUAL SUSPECTS</div>
+                      <div className="eyebrow">{COPY.lobby.invite}</div>
                       <h1>
-                        ASSEMBLE THE
+                        {COPY.lobby.assemble}
                         <br />
-                        <em>GOOBERS.</em>
+                        <em>{COPY.lobby.goobers}</em>
                       </h1>
                     </div>
                     <div className="code-display">
-                      <small>THE SECRET HANDSHAKE</small>
+                      <small>{COPY.lobby.codeLabel}</small>
                       <strong>{state.code}</strong>
                       <button
                         className="quiet"
@@ -555,7 +549,7 @@ export default function Game() {
                           void navigator.clipboard.writeText(state.code)
                         }
                       >
-                        COPY CODE ↗
+                        {COPY.lobby.copy}
                       </button>
                     </div>
                   </div>
@@ -583,10 +577,10 @@ export default function Game() {
                           </span>
                           <small>
                             {p.id === state.me
-                              ? "YOU"
+                              ? COPY.lobby.you
                               : !p.online
-                                ? "OFFLINE"
-                                : "CERTIFIED GOOBER"}
+                                ? COPY.lobby.offline
+                                : COPY.lobby.online}
                           </small>
                         </button>
                         {isHost && p.id !== state.me && (
@@ -602,8 +596,7 @@ export default function Game() {
                     ))}
                     {state.players.length < 4 && (
                       <p className="need-players">
-                        {4 - state.players.length} more questionable
-                        personalities needed ↗
+                        {4 - state.players.length} {COPY.lobby.needed}
                       </p>
                     )}
                   </div>
@@ -616,7 +609,7 @@ export default function Game() {
                         onChange={(e) => setName(e.target.value)}
                       />
                       <button onClick={() => send({ type: "rename", name })}>
-                        RENAME
+                        {COPY.lobby.rename}
                       </button>
                       <div className="colors">
                         {COLORS.map((c) => (
@@ -632,7 +625,7 @@ export default function Game() {
                   )}
                   <div className="lobby-controls">
                     <label>
-                      ROUNDS
+                      {COPY.lobby.rounds}
                       <select
                         aria-label="Rounds"
                         disabled={!isHost}
@@ -653,7 +646,7 @@ export default function Game() {
                       </select>
                     </label>
                     <label>
-                      CAPTION TIMER
+                      {COPY.lobby.timer}
                       <select
                         aria-label="Caption timer"
                         disabled={!isHost}
@@ -676,7 +669,7 @@ export default function Game() {
                       </select>
                     </label>
                     <label>
-                      FLAVOR OF CHAOS
+                      {COPY.lobby.mode}
                       <select
                         aria-label="Image mode"
                         disabled={!isHost}
@@ -691,8 +684,10 @@ export default function Game() {
                           })
                         }
                       >
-                        <option value="same">SAME IMAGE</option>
-                        <option value="different">DIFFERENT IMAGES</option>
+                        <option value="same">{COPY.lobby.same}</option>
+                        <option value="different">
+                          {COPY.lobby.different}
+                        </option>
                       </select>
                     </label>
                     {isHost ? (
@@ -704,36 +699,35 @@ export default function Game() {
                         }
                         onClick={() => send({ type: "start" })}
                       >
-                        START THE CHAOS ↗
+                        {COPY.lobby.start}
                       </button>
                     ) : (
                       <p>Waiting for {hostName} to start…</p>
                     )}
                   </div>
-                  <p className="subtle">
-                    Click your name to change your name or color. No ready
-                    buttons. We trust you. Mostly.
-                  </p>
+                  <p className="subtle">{COPY.lobby.hint}</p>
                 </>
               )}
               {state.phase === "starting" && (
                 <div className="moment">
-                  <p>PLEASE LOWER YOUR EXPECTATIONS.</p>
+                  <p>{COPY.round.starting}</p>
                   <h1 className="countdown" key={remaining}>
                     {remaining}
                   </h1>
-                  <p>THE CHAOS IS LOADING.</p>
+                  <p>{COPY.round.loading}</p>
                 </div>
               )}
               {state.phase === "round_intro" && (
                 <div className="moment">
-                  <p>FRESH IMAGE. FRESH OPPORTUNITY TO EMBARRASS YOURSELF.</p>
+                  <p>{COPY.round.intro}</p>
                   <h1>
-                    {state.round === state.settings.rounds ? "FINAL" : "ROUND"}
+                    {state.round === state.settings.rounds
+                      ? COPY.round.final
+                      : COPY.round.round}
                     <br />
                     <em>
                       {state.round === state.settings.rounds
-                        ? "ROUND."
+                        ? COPY.round.roundEnd
                         : String(state.round).padStart(2, "0")}
                     </em>
                   </h1>
@@ -743,7 +737,7 @@ export default function Game() {
                 <div className="caption-stage">
                   <div className="section-title">
                     <h1>
-                      MAKE IT <em>WORSE.</em>
+                      {COPY.caption.title} <em>{COPY.caption.titleAccent}</em>
                     </h1>
                     {state.phase === "captioning" && (
                       <div
@@ -751,7 +745,7 @@ export default function Game() {
                         role="timer"
                       >
                         {remaining}
-                        <small>SECONDS</small>
+                        <small>{COPY.round.seconds}</small>
                       </div>
                     )}
                   </div>
@@ -765,19 +759,34 @@ export default function Game() {
                       }}
                     >
                       <label className="sr-only" htmlFor="caption">
-                        Your caption
+                        {COPY.caption.label}
                       </label>
                       <textarea
                         id="caption"
-                        placeholder="Your intrusive thoughts go here…"
+                        maxLength={CAPTION_MAX}
+                        aria-describedby="caption-counter"
+                        placeholder={COPY.caption.placeholder}
                         value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
+                        onChange={(e) =>
+                          setDraft(truncateCaption(e.target.value))
+                        }
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const field = e.currentTarget;
+                          setDraft(
+                            truncateCaption(
+                              draft.slice(0, field.selectionStart) +
+                                e.clipboardData.getData("text") +
+                                draft.slice(field.selectionEnd),
+                            ),
+                          );
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
                             if (
                               visibleLength(draft.trim()) >= 3 &&
-                              visibleLength(draft.trim()) <= 72
+                              draft.trim().length <= CAPTION_MAX
                             )
                               send({ type: "caption", text: draft });
                           }
@@ -785,27 +794,33 @@ export default function Game() {
                       />
                       <div className="caption-bottom">
                         <span>
-                          {visibleLength(draft.trim())}/72 · {state.submitted}/
-                          {state.eligible} SUBMITTED
+                          <span
+                            id="caption-counter"
+                            className={
+                              draft.length >= 90
+                                ? "caption-counter near-limit"
+                                : "caption-counter"
+                            }
+                          >
+                            {draft.length} / {CAPTION_MAX}
+                          </span>{" "}
+                          · {state.submitted}/{state.eligible} SUBMITTED
                         </span>
                         <button
                           className="primary"
                           disabled={
                             busy ||
                             visibleLength(draft.trim()) < 3 ||
-                            visibleLength(draft.trim()) > 72
+                            draft.trim().length > CAPTION_MAX
                           }
                         >
                           {state.ownCaption
-                            ? "UPDATE CAPTION ↗"
-                            : "SUBMIT GENIUS ↗"}
+                            ? COPY.caption.update
+                            : COPY.caption.submit}
                         </button>
                       </div>
                       {state.ownCaption && (
-                        <p className="subtle">
-                          ✓ Submitted. You can keep editing until everyone
-                          submits or time runs out.
-                        </p>
+                        <p className="subtle">{COPY.caption.saved}</p>
                       )}
                     </form>
                   )}
@@ -818,8 +833,8 @@ export default function Game() {
                   </div>
                   <p>
                     {state.gag?.kind === "grave"
-                      ? "GONE TOO SOON"
-                      : "PIN OF SHAME"}
+                      ? COPY.grave.title
+                      : COPY.shame.title}
                   </p>
                   <h1>
                     {
@@ -829,8 +844,8 @@ export default function Game() {
                   </h1>
                   <p>
                     {state.gag?.kind === "grave"
-                      ? "Disconnected before submitting. Their Wi-Fi had other plans."
-                      : "Couldn't think of three characters. A moment of silence for the brain cell."}
+                      ? COPY.grave.subtitle
+                      : COPY.shame.subtitle}
                   </p>
                 </div>
               )}
@@ -838,10 +853,11 @@ export default function Game() {
                 <div className="slideshow">
                   <div className="section-title">
                     <p>
-                      EXHIBIT {String(state.index + 1).padStart(2, "0")} /{" "}
+                      {COPY.slideshow.exhibit}{" "}
+                      {String(state.index + 1).padStart(2, "0")} /{" "}
                       {state.captions.length}
                     </p>
-                    <span>AUTHOR: CLASSIFIED</span>
+                    <span>{COPY.slideshow.anonymous}</span>
                   </div>
                   <div className="meme-frame">
                     {image(state.captions[state.index]?.image)}
@@ -856,13 +872,14 @@ export default function Game() {
                       onClick={() => send({ type: "continue" })}
                     >
                       {state.index === state.captions.length - 1
-                        ? "TIME TO JUDGE"
-                        : "NEXT MASTERPIECE"}{" "}
+                        ? COPY.slideshow.vote
+                        : COPY.slideshow.next}{" "}
                       →
                     </button>
                   ) : (
                     <p className="subtle">
-                      Take it in. {hostName} runs the slideshow.
+                      {COPY.slideshow.waiting} {hostName}{" "}
+                      {COPY.slideshow.waitingEnd}
                     </p>
                   )}
                 </div>
@@ -871,14 +888,14 @@ export default function Game() {
                 <div className="voting">
                   <div className="section-title">
                     <div>
-                      <p>ONE VOTE. ZERO OBJECTIVITY.</p>
+                      <p>{COPY.voting.intro}</p>
                       <h1>
-                        PICK YOUR <em>POISON.</em>
+                        {COPY.voting.title} <em>{COPY.voting.accent}</em>
                       </h1>
                     </div>
                     <div className="timer">
                       {remaining}
-                      <small>SECONDS</small>
+                      <small>{COPY.round.seconds}</small>
                     </div>
                   </div>
                   {state.settings.mode === "same" &&
@@ -898,34 +915,28 @@ export default function Game() {
                         <strong>{c.text}</strong>
                         <small>
                           {c.own
-                            ? "YOUR MASTERPIECE"
+                            ? COPY.voting.own
                             : state.ownVote === c.id
-                              ? "✓ SELECTED"
-                              : "CLICK TO VOTE"}
+                              ? COPY.voting.selected
+                              : COPY.voting.select}
                         </small>
                       </button>
                     ))}
                   </div>
-                  <p className="subtle">
-                    Change your mind until voting closes. Silence means a random
-                    vote. No self-love allowed.
-                  </p>
+                  <p className="subtle">{COPY.voting.hint}</p>
                 </div>
               )}
               {state.phase === "vote_reveal" && (
                 <div className="moment">
-                  <p>THE PEOPLE HAVE QUESTIONABLE TASTE.</p>
+                  <p>{COPY.results.intro}</p>
                   <h1>
-                    THE VERDICT<span className="blink">…</span>
+                    {COPY.results.verdict}
+                    <span className="blink">…</span>
                   </h1>
                   {state.captions.length === 0 ? (
-                    <p>
-                      …SERIOUSLY? Not a single caption. No points. Incredible.
-                    </p>
+                    <p>{COPY.results.empty}</p>
                   ) : state.captions.length === 1 ? (
-                    <p>
-                      Only one functioning person. An uncontested masterpiece.
-                    </p>
+                    <p>{COPY.results.single}</p>
                   ) : null}
                   <div className="tally-grid">
                     {state.captions.map((c) => (
@@ -946,13 +957,13 @@ export default function Game() {
                 <div className="moment winner">
                   <p>
                     {state.results.filter((r) => r.winner).length > 1
-                      ? "SHARED BRAIN CELL. SHARED VICTORY."
-                      : "WE HAVE A PROBLEM. IT’S TALENT."}
+                      ? COPY.results.tie
+                      : COPY.results.winnerIntro}
                   </p>
                   <h1>
                     {state.results.some((r) => r.winner)
-                      ? "ROUND ROYALTY."
-                      : "NOBODY WINS."}
+                      ? COPY.results.winner
+                      : COPY.results.noWinner}
                   </h1>
                   <div className="winner-grid">
                     {state.results
@@ -972,7 +983,7 @@ export default function Game() {
                               }
                             </h3>
                             <b>+{r.points} POINTS</b>
-                            {r.unanimous && <p>✳ UNANIMOUS! +50%</p>}
+                            {r.unanimous && <p>{COPY.results.unanimous}</p>}
                             {r.streak > 1 && (
                               <p>🔥 STREAK ×{r.streak} · +10%</p>
                             )}
@@ -984,9 +995,9 @@ export default function Game() {
               )}
               {state.phase === "round_leaderboard" && (
                 <div className="leaderboard">
-                  <p>THE SOCIAL HIERARCHY HAS SHIFTED.</p>
+                  <p>{COPY.leaderboard.intro}</p>
                   <h1>
-                    CURRENT <em>DAMAGE.</em>
+                    {COPY.leaderboard.title} <em>{COPY.leaderboard.accent}</em>
                   </h1>
                   {ranks()}
                   <div className="round-breakdown">
@@ -1008,15 +1019,17 @@ export default function Game() {
                       onClick={() => send({ type: "continue" })}
                     >
                       {state.round === state.settings.rounds
-                        ? "THE GRAND FINALE"
-                        : "NEXT ROUND"}{" "}
+                        ? COPY.leaderboard.final
+                        : COPY.leaderboard.next}{" "}
                       →
                     </button>
                   ) : (
-                    <p>Catch your breath. Waiting for {hostName}.</p>
+                    <p>
+                      {COPY.leaderboard.waiting} {hostName}.
+                    </p>
                   )}
                   <div className="author-reveal">
-                    <h2>THE CULPRITS, REVEALED.</h2>
+                    <h2>{COPY.results.authorTitle}</h2>
                     {state.captions.map((c) => (
                       <div key={c.id}>
                         <span>“{c.text}”</span>
@@ -1031,9 +1044,9 @@ export default function Game() {
               )}
               {state.phase === "final_podium" && (
                 <div className="finale">
-                  <p>AN ABSURD AMOUNT OF GLORY.</p>
+                  <p>{COPY.podium.intro}</p>
                   <h1>
-                    THE <em>GOOBER ELITE.</em>
+                    {COPY.podium.title} <em>{COPY.podium.accent}</em>
                   </h1>
                   <div className="podium-layout">
                     <div className="podium">
@@ -1059,10 +1072,16 @@ export default function Game() {
                             <h2>
                               {players.map((p) => p.name).join(" & ") || "—"}
                             </h2>
-                            {players.length > 1 && <small>TIED</small>}
+                            {players.length > 1 && (
+                              <small>{COPY.podium.tied}</small>
+                            )}
                             <p>{players[0]?.score ?? 0} PTS</p>
                             <b>
-                              {rank === 1 ? "1ST" : rank === 2 ? "2ND" : "3RD"}
+                              {rank === 1
+                                ? COPY.podium.first
+                                : rank === 2
+                                  ? COPY.podium.second
+                                  : COPY.podium.third}
                             </b>
                           </div>
                         );
@@ -1075,14 +1094,16 @@ export default function Game() {
               )}
               {state.phase === "final_awards" && (
                 <div className="awards">
-                  <p>NO EXTRA POINTS. JUST PERMANENT EMOTIONAL DAMAGE.</p>
+                  <p>{COPY.awards.intro}</p>
                   <h1>
-                    VERY SPECIAL <em>AWARDS.</em>
+                    {COPY.awards.title} <em>{COPY.awards.accent}</em>
                   </h1>
                   <div className="awards-grid">
                     {state.best.map((b, i) => (
                       <div className="award best" key={i}>
-                        <span>🏆 BEST MEME · {b.votes} VOTES</span>
+                        <span>
+                          {COPY.awards.best} {b.votes} VOTES
+                        </span>
                         {image(b.caption.image)}
                         <h2>“{b.caption.text}”</h2>
                         <p>
@@ -1095,11 +1116,11 @@ export default function Game() {
                     ))}
                     {(
                       [
-                        { key: "pins", title: "📌 Pin Collector" },
-                        { key: "longest", title: "🔥 On Fire" },
-                        { key: "votes", title: "💖 People Pleaser" },
-                        { key: "deaths", title: "🪦 Gone Too Soon" },
-                        { key: "robbed", title: "😭 Robbed" },
+                        { key: "pins", title: COPY.awards.pins },
+                        { key: "longest", title: COPY.awards.fire },
+                        { key: "votes", title: COPY.awards.votes },
+                        { key: "deaths", title: COPY.awards.deaths },
+                        { key: "robbed", title: COPY.awards.robbed },
                       ] as const
                     ).map((a) => {
                       const max = Math.max(
@@ -1125,7 +1146,7 @@ export default function Game() {
                       onClick={() => send({ type: "continue" })}
                       disabled={busy || now - state.started < 1500}
                     >
-                      TAKE A BOW →
+                      {COPY.awards.continue}
                     </button>
                   ) : (
                     <p>Waiting for {hostName}…</p>
@@ -1134,9 +1155,9 @@ export default function Game() {
               )}
               {state.phase === "game_over" && (
                 <div className="leaderboard">
-                  <p>SAME TIME. WORSE JOKES?</p>
+                  <p>{COPY.end.intro}</p>
                   <h1>
-                    ONE MORE <em>BAD IDEA.</em>
+                    {COPY.end.title} <em>{COPY.end.accent}</em>
                   </h1>
                   {ranks()}
                   {isHost ? (
@@ -1149,14 +1170,14 @@ export default function Game() {
                         }
                         onClick={() => send({ type: "rematch" })}
                       >
-                        REMATCH ↗
+                        {COPY.end.rematch}
                       </button>
                       <button onClick={() => send({ type: "lobby" })}>
-                        RETURN TO LOBBY
+                        {COPY.end.lobby}
                       </button>
                     </div>
                   ) : (
-                    <p>The host decides what happens to your evening.</p>
+                    <p>{COPY.end.waiting}</p>
                   )}
                 </div>
               )}
@@ -1164,16 +1185,18 @@ export default function Game() {
           )}
           {state.halfGone && isHost && (
             <aside className="vanished">
-              <h2>HALF THE LOBBY HAS VANISHED</h2>
+              <h2>{COPY.common.vanished}</h2>
               <button onClick={() => send({ type: "keep" })}>
-                CONTINUE GAME
+                {COPY.common.continue}
               </button>
-              <button onClick={() => send({ type: "end" })}>END GAME</button>
+              <button onClick={() => send({ type: "end" })}>
+                {COPY.common.end}
+              </button>
             </aside>
           )}
           <footer className="game-footer">
             <button className="quiet" onClick={exit}>
-              LEAVE ROOM
+              {COPY.common.leave}
             </button>
             <div className="reactions" aria-label="Send a reaction">
               {emojis.map((e) => (
@@ -1194,18 +1217,18 @@ export default function Game() {
                 disabled={busy}
                 onClick={() => send({ type: "skip" })}
               >
-                SKIP PHASE ↗
+                {COPY.common.skip}
               </button>
             ) : (
-              <span className="footer-note">BAD JOKES. GOOD COMPANY.</span>
+              <span className="footer-note">{COPY.common.footer}</span>
             )}
           </footer>
         </main>
       )}
       {!state && (
         <footer className="home-footer">
-          <span>A GAME FOR YOUR LEAST NORMAL FRIENDS.</span>
-          <span>EST. 2029. SOMEHOW.</span>
+          <span>{COPY.home.footer1}</span>
+          <span>{COPY.home.footer2}</span>
         </footer>
       )}
       <div className="reaction-layer" aria-hidden="true">

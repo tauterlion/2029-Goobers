@@ -175,9 +175,12 @@ describe("images", () => {
 describe("captions and recovery", () => {
   it("checks grapheme length and supports emoji", () => {
     expect(() => captionValid("ab")).toThrow();
-    expect(() => captionValid("x".repeat(73))).toThrow();
+    expect(() => captionValid("x".repeat(101))).toThrow();
     expect(captionValid("😀😎🔥")).toBe("😀😎🔥");
-    expect(captionValid("x".repeat(72))).toHaveLength(72);
+    expect(captionValid("x".repeat(99))).toHaveLength(99);
+    expect(captionValid("x".repeat(100))).toHaveLength(100);
+    expect(captionValid("😀".repeat(50))).toHaveLength(100);
+    expect(() => captionValid("😀".repeat(51))).toThrow();
   });
   it("updates one submission and closes on all submitted", () => {
     const r = setup();

@@ -1,3 +1,4 @@
+import { COPY } from "@/game/copy";
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomInt } from "node:crypto";
 import { z } from "zod";
@@ -40,15 +41,9 @@ export async function POST(req: NextRequest) {
       req.headers.get("origin") &&
       req.headers.get("origin") !== req.nextUrl.origin
     )
-      return NextResponse.json(
-        { error: "Please play from this site." },
-        { status: 403 },
-      );
+      return NextResponse.json({ error: COPY.errors.origin }, { status: 403 });
     if (Number(req.headers.get("content-length")) > 10000)
-      return NextResponse.json(
-        { error: "That request is too large." },
-        { status: 413 },
-      );
+      return NextResponse.json({ error: COPY.errors.large }, { status: 413 });
     const a = schema.parse(await req.json());
     const secret = digest(a.token);
     const now = Date.now();
@@ -73,26 +68,25 @@ export async function POST(req: NextRequest) {
           throw error;
         }
       }
-      throw new Error("Could not create a room. Try again.");
+      throw new Error(COPY.errors.create);
     }
     const code = (a.code ?? "").trim().toUpperCase();
     if (a.type === "read") {
       const r = await load(code);
       const p = r.players.find((p) => p.secret === secret);
-      if (!p) throw new Error("Your room session ended. Join again.");
+      if (!p) throw new Error(COPY.errors.session);
       if (p.connection !== a.connection && connected(p, now))
-        throw new Error("You're already playing in another tab or device.");
+        throw new Error(COPY.errors.duplicateSession);
       return NextResponse.json({ state: view(r, p.id, now), local });
     }
     const { room, result } = await mutate(code, (r) => {
       let p = r.players.find((p) => p.secret === secret);
       if (!p) {
-        if (a.type !== "join")
-          throw new Error("Your room session ended. Join again.");
+        if (a.type !== "join") throw new Error(COPY.errors.session);
         p = join(r, a.name ?? "", secret, a.connection, now);
       } else {
         if (p.connection !== a.connection && connected(p, now))
-          throw new Error("You're already playing in another tab or device.");
+          throw new Error(COPY.errors.duplicateSession);
         p.connection = a.connection;
         p.seen = now;
       }
@@ -105,17 +99,17 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const message =
       error instanceof z.ZodError
-        ? "That request looks unusual. Please try again."
+        ? COPY.errors.invalid
         : error instanceof Error
           ? error.message
-          : "Room service is taking a breather. Try again.";
+          : COPY.errors.service;
     if (process.env.NODE_ENV !== "production") console.error(error);
-    const safe =
-      /^(Use |Give |Choose |Someone |This |We |Add |Only |The |Wait |Let |Nothing |Finish |Your |You|Unknown |Pens |Voting |Names |Room service |Could|That |Please)/.test(
-        message,
-      )
-        ? message
-        : "Room service is taking a breather. Try again.";
-    return NextResponse.json({ error: safe }, { status: 400 });
+    const code =
+      Object.entries(COPY.errors).find(([, text]) => text === message)?.[0] ??
+      "service";
+    return NextResponse.json(
+      { error: COPY.errors[code as keyof typeof COPY.errors], code },
+      { status: 400 },
+    );
   }
 }

@@ -1,3 +1,5 @@
+import { COPY } from "./copy";
+import { CAPTION_MIN, CAPTION_MAX } from "./caption";
 export const PHASES = [
   "lobby",
   "starting",
@@ -112,17 +114,14 @@ export function requireThat(ok: unknown, message: string): asserts ok {
 }
 export function nameValid(name: string) {
   const n = name.trim();
-  requireThat(
-    visibleLength(n) > 0 && visibleLength(n) <= 14,
-    "Use a name with 1–14 characters.",
-  );
+  requireThat(visibleLength(n) > 0 && visibleLength(n) <= 14, COPY.errors.name);
   return n;
 }
 export function captionValid(text: string) {
   const t = text.trim();
   requireThat(
-    visibleLength(t) >= 3 && visibleLength(t) <= 72,
-    "Give us 3–72 characters of genius.",
+    visibleLength(t) >= CAPTION_MIN && t.length <= CAPTION_MAX,
+    COPY.errors.caption,
   );
   return t;
 }
@@ -135,7 +134,7 @@ export function settingsValid(s: Room["settings"]) {
       s.seconds >= 10 &&
       s.seconds <= 60 &&
       ["same", "different"].includes(s.mode),
-    "Choose 1–15 rounds and 10–60 seconds.",
+    COPY.errors.settings,
   );
   return s;
 }
@@ -192,13 +191,13 @@ export function join(
   connection: string,
   now: number,
 ) {
-  requireThat(r.players.length < 12, "This room is full of goobers.");
+  requireThat(r.players.length < 12, COPY.errors.full);
   const n = nameValid(name);
   requireThat(
     !r.players.some(
       (p) => p.name.toLocaleLowerCase() === n.toLocaleLowerCase(),
     ),
-    "Someone already stole that name.",
+    COPY.errors.duplicateName,
   );
   const p: Player = {
     id: crypto.randomUUID(),
@@ -317,7 +316,7 @@ export function score(r: Room, now: number) {
     const count = item?.count ?? 0;
     const winner =
       !!item && count === max && (max > 0 || r.captions.length === 1);
-    const eligible = r.electorate.filter((id) => id !== p.id);
+    const eligible = r.electorate.filter((id) => id !== item?.c.player);
     const unanimous =
       !!item &&
       r.captions.length > 1 &&
@@ -458,13 +457,13 @@ export function act(
     return;
   }
   if (a.type === "rename") {
-    requireThat(r.phase === "lobby", "Names are locked during play.");
+    requireThat(r.phase === "lobby", COPY.errors.nameLocked);
     const n = nameValid(a.name ?? "");
     requireThat(
       !r.players.some(
         (q) => q.id !== p.id && q.name.toLowerCase() === n.toLowerCase(),
       ),
-      "Someone already stole that name.",
+      COPY.errors.duplicateName,
     );
     p.name = n;
     return;
@@ -472,7 +471,7 @@ export function act(
   if (a.type === "color") {
     requireThat(
       r.phase === "lobby" && COLORS.includes(a.color ?? ""),
-      "Choose a lobby color.",
+      COPY.errors.color,
     );
     p.color = a.color!;
     return;
@@ -480,16 +479,13 @@ export function act(
   if (a.type === "kick") {
     requireThat(
       host && r.phase === "lobby" && a.target !== p.id,
-      "Only the host can kick in the lobby.",
+      COPY.errors.kick,
     );
     r.players = r.players.filter((q) => q.id !== a.target);
     return;
   }
   if (a.type === "settings") {
-    requireThat(
-      host && r.phase === "lobby",
-      "Only the host can change settings in the lobby.",
-    );
+    requireThat(host && r.phase === "lobby", COPY.errors.settingsHost);
     r.settings = settingsValid(a.settings!);
     return;
   }
@@ -498,22 +494,22 @@ export function act(
       a.type,
     )
   ) {
-    requireThat(host, "Only the host has that big red button.");
-    requireThat(a.epoch === r.epoch, "The show already moved on.");
+    requireThat(host, COPY.errors.host);
+    requireThat(a.epoch === r.epoch, COPY.errors.phase);
     if (a.type === "start" || a.type === "rematch") {
       requireThat(
         a.type === "start" ? r.phase === "lobby" : r.phase === "game_over",
-        "Wait for the right moment.",
+        COPY.errors.wait,
       );
       requireThat(
         r.players.filter((q) => connected(q, now)).length >= 4,
-        "We need at least 4 connected goobers.",
+        COPY.errors.minimum,
       );
-      requireThat(library.length > 0, "Add some images before starting.");
+      requireThat(library.length > 0, COPY.errors.images);
       reset(r);
       phase(r, "starting", now, 5);
     } else if (a.type === "lobby") {
-      requireThat(r.phase === "game_over", "Finish the game first.");
+      requireThat(r.phase === "game_over", COPY.errors.finish);
       reset(r);
       phase(r, "lobby", now);
     } else if (a.type === "end" || a.type === "keep") {
@@ -527,7 +523,7 @@ export function act(
               ),
           ).length >=
             r.electorate.length / 2,
-        "The game is still alive.",
+        COPY.errors.alive,
       );
       if (a.type === "end") {
         reset(r);
@@ -536,14 +532,14 @@ export function act(
     } else {
       requireThat(
         r.phase !== "lobby" && r.phase !== "game_over",
-        "Nothing to skip here.",
+        COPY.errors.skip,
       );
       if (a.type === "continue")
         requireThat(
           ["slideshow", "round_leaderboard", "final_awards"].includes(
             r.phase,
           ) && now - r.started >= 1500,
-          "Let the moment breathe.",
+          COPY.errors.breathe,
         );
       advance(r, now, library, a.type === "skip");
     }
@@ -553,7 +549,7 @@ export function act(
     requireThat(
       Object.values(r.assignments).includes(a.image ?? "") ||
         r.captions.some((c) => c.image === a.image),
-      "Unknown image.",
+      COPY.errors.image,
     );
     if (!r.failed.includes(a.image!)) r.failed.push(a.image!);
     const replacement = drawImage(r, p.id, library);
@@ -562,13 +558,10 @@ export function act(
     for (const c of r.captions) if (c.image === a.image) c.image = replacement;
     return;
   }
-  requireThat(
-    !p.pending && r.electorate.includes(p.id),
-    "You join the chaos next round.",
-  );
-  requireThat(a.epoch === r.epoch, "The show already moved on.");
+  requireThat(!p.pending && r.electorate.includes(p.id), COPY.errors.pending);
+  requireThat(a.epoch === r.epoch, COPY.errors.phase);
   if (a.type === "caption") {
-    requireThat(r.phase === "captioning", "Pens down! Caption time is over.");
+    requireThat(r.phase === "captioning", COPY.errors.captionClosed);
     const text = captionValid(a.text ?? "");
     const old = r.captions.find((c) => c.player === p.id);
     if (old) old.text = text;
@@ -584,19 +577,23 @@ export function act(
     return;
   }
   if (a.type === "vote") {
-    requireThat(r.phase === "voting", "Voting is closed.");
+    requireThat(r.phase === "voting", COPY.errors.votingClosed);
     const c = r.captions.find((c) => c.id === a.target);
-    requireThat(c && c.player !== p.id, "You cannot vote for yourself.");
+    requireThat(c && c.player !== p.id, COPY.errors.selfVote);
     r.votes[p.id] = { caption: c.id, random: false };
     if (
       r.electorate.every(
-        (id) => r.votes[id] || !r.captions.some((c) => c.player !== id),
+        (id) =>
+          !r.captions.some((c) => c.player !== id) ||
+          r.captions.some(
+            (c) => c.id === r.votes[id]?.caption && c.player !== id,
+          ),
       )
     )
       score(r, now);
     return;
   }
-  throw new Error("Unknown action.");
+  throw new Error(COPY.errors.unknown);
 }
 export function view(r: Room, id: string, now: number) {
   const p = r.players.find((p) => p.id === id)!;

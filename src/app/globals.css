@@ -6,6 +6,15 @@
   --purple: #b5a2ec;
   --pink: #f6a7c7;
 }
+.caption-counter {
+  font-variant-numeric: tabular-nums;
+}
+.caption-counter.near-limit {
+  color: #8a3b18;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .author-reveal {
   margin: 32px 0;
   text-align: left;

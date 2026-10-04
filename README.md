@@ -24,13 +24,15 @@ To play/test without Supabase, put `LOCAL_GAME_STORE=true` in `.env.local`. This
 - Images: drop PNG, JPG, JPEG, WebP, GIF, AVIF or SVG files into **`public/game-images/`**. Subfolders and arbitrary filenames are supported. Use browser-safe/trusted SVG files. Existing unsupported files are ignored.
 - Optional announcer: **`public/audio/announcer/`**, e.g. `pin_of_shame_01.webm`, `pin_of_shame_08.mp3`. Number suffixes are variants, not part of the cue name. No audio folder or recording is required.
 - Available phase cues include `game_start`, `round_intro`, `captioning`, `caption_resolution`, `slideshow`, `voting`, `vote_reveal`, `round_winner`, `round_leaderboard`, `final_podium`, `final_awards`, `game_over`, `urgency_10`, `urgency_5`. Event-specific hooks are in `src/audio/manager.ts` / `src/components/Game.tsx`.
-- Optional future SFX/music may go in `public/audio/sfx/` and `public/audio/music/`. Connect them through the audio manager; those folders are not automatically played. The built-in timer tick uses Web Audio. Voice playback is best-effort, interruptible, muted with the sound control, and never blocks state transitions.
+- Optional SFX are discovered in `public/audio/sfx/` and background music in `public/audio/music/`. Matching cues play automatically, with looping music, crossfades, ducking, and the global mute button. See [AUDIO.md](AUDIO.md) for all cue names and the six music filenames. Missing audio is silent and never blocks gameplay.
 
 `npm run assets` generates `src/generated/assets.json`. Development startup and production builds run this automatically. Restart development after adding assets. The browser only requests images needed for the current screen. Images use containment, never forced cropping. No placeholder assets need replacing.
 
 Static images under `public/` are reachable by their asset paths. Rooms and UI are private by code; this is **not authenticated media storage**. The app has no gallery, archive, image index UI, or downloadable meme feature, and tells search engines not to index its pages.
 
 ## Checks
+
+Edit most game dialogue in `src/game/copy.ts`. Text is grouped by screen, errors, awards and results. Captions accept 3 visible characters minimum and 100 UTF-16 units maximum, matching native textarea `maxLength`; emoji may use multiple units. The counter uses the same budget, and paste truncation preserves complete emoji clusters.
 
 ```sh
 npm test

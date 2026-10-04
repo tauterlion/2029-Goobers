@@ -1,3 +1,4 @@
+import { COPY } from "@/game/copy";
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
@@ -7,10 +8,7 @@ export const local =
 export function db() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key)
-    throw new Error(
-      "Room service needs setup. See the README to connect Supabase.",
-    );
+  if (!url || !key) throw new Error(COPY.errors.setup);
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -31,12 +29,12 @@ async function serial<T>(fn: () => Promise<T>): Promise<T> {
 }
 const filename = (code: string) => `.local-rooms/${code}.json`;
 export async function load(code: string): Promise<Room> {
-  if (!/^[A-Z2-9]{5}$/.test(code)) throw new Error("Couldn't find that room.");
+  if (!/^[A-Z2-9]{5}$/.test(code)) throw new Error(COPY.errors.notFound);
   if (local) {
     try {
       return JSON.parse(await readFile(filename(code), "utf8"));
     } catch {
-      throw new Error("Couldn't find that room.");
+      throw new Error(COPY.errors.notFound);
     }
   }
   const { data, error } = await db()
@@ -45,9 +43,8 @@ export async function load(code: string): Promise<Room> {
     .eq("code", code)
     .gt("last_activity_at", new Date(Date.now() - 21600000).toISOString())
     .single();
-  if (error && error.code !== "PGRST116")
-    throw new Error("Room service is taking a breather. Trying to reconnect…");
-  if (!data) throw new Error("Couldn't find that room.");
+  if (error && error.code !== "PGRST116") throw new Error(COPY.errors.offline);
+  if (!data) throw new Error(COPY.errors.notFound);
   return data.state as Room;
 }
 export async function create(r: Room) {
@@ -95,7 +92,7 @@ export async function mutate<T>(
         setTimeout(resolve, 10 + Math.random() * 30),
       );
     }
-    throw new Error("The room is busy. Try that again.");
+    throw new Error(COPY.errors.busy);
   };
   return local ? serial(work) : work();
 }

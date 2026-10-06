@@ -9,6 +9,11 @@ import { sfx, setMuted, unlock } from "@/audio/manager";
 import { useGameAudio } from "@/audio/useGameAudio";
 import { CAPTION_MAX, truncateCaption } from "@/game/caption";
 import { eventCopy, interpolate } from "@/game/variants";
+import GameImage from "./GameImage";
+import LobbyPlayers from "./LobbyPlayers";
+import ReactionTray from "./ReactionTray";
+import Topography from "./Topography";
+import { PODIUM } from "@/game/timing";
 import ThemeSelector from "./ThemeSelector";
 import DeckEditor from "./DeckEditor";
 type Session = { token: string; connection: string; code: string };
@@ -27,9 +32,9 @@ export default function Game() {
     [muted, setMute] = useState(false),
     [editing, setEditing] = useState(false),
     [help, setHelp] = useState(false),
-    [floats, setFloats] = useState<{ id: string; emoji: string; x: number }[]>(
-      [],
-    );
+    [floats, setFloats] = useState<
+      { id: string; emoji: string; x: number; expires: number }[]
+    >([]);
   const session = useRef<Session | null>(null),
     current = useRef<GameView | null>(null),
     offset = useRef(0),
@@ -42,9 +47,20 @@ export default function Game() {
     const id = crypto.randomUUID();
     setFloats((f) => [
       ...f.slice(-19),
-      { id, emoji, x: 5 + Math.random() * 90 },
+      { id, emoji, x: 5 + Math.random() * 90, expires: Date.now() + 2500 },
     ]);
-    setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 2500);
+  }, []);
+  useEffect(() => {
+    const timer = setInterval(
+      () =>
+        setFloats((f) =>
+          f.some((x) => x.expires <= Date.now())
+            ? f.filter((x) => x.expires > Date.now())
+            : f,
+        ),
+      250,
+    );
+    return () => clearInterval(timer);
   }, []);
   const request = useCallback(
     async (action: Action & { code?: string }, quiet = false) => {
@@ -189,9 +205,13 @@ export default function Game() {
     };
   }, [state?.id, local, request, pushReaction]);
   useEffect(() => {
+    const nextDeadline = Math.min(
+      state?.deadline ?? Infinity,
+      state?.presenceDeadline ?? Infinity,
+    );
     if (
-      !state?.deadline ||
-      clock + offset.current < state.deadline ||
+      !Number.isFinite(nextDeadline) ||
+      clock + offset.current < nextDeadline ||
       inflight.current
     )
       return;
@@ -199,7 +219,7 @@ export default function Game() {
     void request({ type: "heartbeat" }, true).finally(() => {
       inflight.current = false;
     });
-  }, [clock, state?.deadline, request]);
+  }, [clock, state?.deadline, state?.presenceDeadline, request]);
   useEffect(() => {
     setDraft(truncateCaption(state?.ownCaption ?? ""));
   }, [state?.round, state?.ownCaption]);
@@ -242,28 +262,12 @@ export default function Game() {
     });
   };
   const standings = state
-    ? [...state.players].sort(
+    ? [...state.participants].sort(
         (a, b) => b.score - a.score || a.id.localeCompare(b.id),
       )
     : [];
   function image(src: string, className = "meme-image") {
-    return src ? (
-      <img
-        className={className}
-        src={src}
-        alt="Your caption challenge"
-        onError={() => send({ type: "image_failed", image: src })}
-      />
-    ) : (
-      <div className="image-fallback">
-        🖼️
-        <p>
-          {COPY.common.fallback}
-          <br />
-          {COPY.common.fallbackHint}
-        </p>
-      </div>
-    );
+    return <GameImage key={src} src={src} className={className} />;
   }
   function ranks(compact = false) {
     return (
@@ -284,7 +288,9 @@ export default function Game() {
                   : i === standings.length - 1
                     ? COPY.leaderboard.consolation
                     : !p.online
-                      ? COPY.common.reconnecting
+                      ? p.removed
+                        ? COPY.lobby.removed
+                        : COPY.common.reconnecting
                       : ""}
               </small>
             </span>
@@ -315,6 +321,7 @@ export default function Game() {
           sfx("ui_hover");
       }}
     >
+      <Topography />
       <div className="ambient" aria-hidden="true">
         <i />
         <i />
@@ -565,51 +572,12 @@ export default function Game() {
                       </button>
                     </div>
                   </div>
-                  <div className="player-cloud">
-                    {state.players.map((p, i) => (
-                      <div
-                        className={`player-float player-${i}`}
-                        key={p.id}
-                        style={
-                          {
-                            "--player": p.color,
-                            "--tilt": `${i % 2 ? 5 : -5}deg`,
-                            "--delay": `${i * -0.7}s`,
-                          } as React.CSSProperties
-                        }
-                      >
-                        <button
-                          onClick={() => {
-                            if (p.id === state.me) setEditing(!editing);
-                          }}
-                        >
-                          <span>
-                            {p.id === state.host ? "♛ " : ""}
-                            {p.name}
-                          </span>
-                          <small>
-                            {p.id === state.me
-                              ? COPY.lobby.you
-                              : !p.online
-                                ? COPY.lobby.offline
-                                : COPY.lobby.online}
-                          </small>
-                        </button>
-                        {isHost && p.id !== state.me && (
-                          <button
-                            className="kick"
-                            aria-label={`Kick ${p.name}`}
-                            onClick={() => send({ type: "kick", target: p.id })}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    {state.players.length < 4 && (
-                      <p className="need-players">{COPY.lobby.needed}</p>
-                    )}
-                  </div>
+                  <LobbyPlayers
+                    state={state}
+                    busy={busy}
+                    onEdit={() => setEditing(!editing)}
+                    onKick={(target) => send({ type: "kick", target })}
+                  />
                   {editing && (
                     <div className="customize">
                       <input
@@ -839,7 +807,7 @@ export default function Game() {
                           <span
                             id="caption-counter"
                             className={
-                              draft.length >= 90
+                              draft.length >= CAPTION_MAX - 10
                                 ? "caption-counter near-limit"
                                 : "caption-counter"
                             }
@@ -886,7 +854,7 @@ export default function Game() {
                   </p>
                   <h1>
                     {
-                      state.players.find((p) => p.id === state.gag?.player)
+                      state.participants.find((p) => p.id === state.gag?.player)
                         ?.name
                     }
                   </h1>
@@ -1042,8 +1010,9 @@ export default function Game() {
                             <h2>“{c?.text}”</h2>
                             <h3>
                               {
-                                state.players.find((p) => p.id === r.player)
-                                  ?.name
+                                state.participants.find(
+                                  (p) => p.id === r.player,
+                                )?.name
                               }
                             </h3>
                             <b>
@@ -1086,8 +1055,11 @@ export default function Game() {
                       .filter((r) => r.points > 0)
                       .map((r) => (
                         <span key={r.player}>
-                          {state.players.find((p) => p.id === r.player)?.name} +
-                          {r.points}
+                          {
+                            state.participants.find((p) => p.id === r.player)
+                              ?.name
+                          }{" "}
+                          +{r.points}
                           {r.unanimous ? " ✳ UNANIMOUS" : ""}
                           {r.streak > 1 ? ` 🔥 ×${r.streak}` : ""}
                         </span>
@@ -1117,7 +1089,11 @@ export default function Game() {
                       <div key={c.id}>
                         <span>“{c.text}”</span>
                         <b>
-                          {state.players.find((p) => p.id === c.author)?.name} ·{" "}
+                          {
+                            state.participants.find((p) => p.id === c.author)
+                              ?.name
+                          }{" "}
+                          ·{" "}
                           {interpolate(COPY.results.votes, { X: c.count ?? 0 })}
                         </b>
                       </div>
@@ -1143,7 +1119,11 @@ export default function Game() {
                         );
                         const visible =
                           now - state.started >
-                          ({ 3: 0, 2: 3000, 1: 6000 }[rank] ?? 0);
+                          ({
+                            3: PODIUM.third,
+                            2: PODIUM.second,
+                            1: PODIUM.first,
+                          }[rank] ?? 0);
                         return (
                           <div
                             className={`podium-place place-${rank} ${visible ? "visible" : ""}`}
@@ -1170,9 +1150,9 @@ export default function Game() {
                         );
                       })}
                     </div>
-                    {now - state.started > 7500 && ranks(true)}
+                    {now - state.started > PODIUM.standings && ranks(true)}
                   </div>
-                  {now - state.started > 6000 && <Confetti />}
+                  {now - state.started > PODIUM.first && <Confetti />}
                 </div>
               )}
               {state.phase === "final_awards" && (
@@ -1191,8 +1171,9 @@ export default function Game() {
                         <h2>“{b.caption.text}”</h2>
                         <p>
                           {
-                            state.players.find((p) => p.id === b.caption.player)
-                              ?.name
+                            state.participants.find(
+                              (p) => p.id === b.caption.player,
+                            )?.name
                           }
                         </p>
                       </div>
@@ -1207,13 +1188,13 @@ export default function Game() {
                       ] as const
                     ).map((a) => {
                       const max = Math.max(
-                        ...state.players.map((p) => p.stats[a.key]),
+                        ...state.participants.map((p) => p.stats[a.key]),
                       );
                       return max > 0 ? (
                         <div className="award" key={a.key}>
                           <p>{a.title}</p>
                           <h2>
-                            {state.players
+                            {state.participants
                               .filter((p) => p.stats[a.key] === max)
                               .map((p) => p.name)
                               .join(" & ")}
@@ -1282,17 +1263,6 @@ export default function Game() {
             <button className="quiet" onClick={exit}>
               {COPY.common.leave}
             </button>
-            <div className="reactions" aria-label="Send a reaction">
-              {emojis.map((e) => (
-                <button
-                  key={e}
-                  aria-label={`React ${e}`}
-                  onClick={() => react(e)}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
             {isHost &&
             state.phase !== "lobby" &&
             state.phase !== "game_over" ? (
@@ -1315,6 +1285,7 @@ export default function Game() {
           <span>{COPY.home.footer2}</span>
         </footer>
       )}
+      {state && <ReactionTray emojis={emojis} onReact={react} />}
       <div className="reaction-layer" aria-hidden="true">
         {floats.map((f) => (
           <span key={f.id} style={{ left: `${f.x}%` }}>

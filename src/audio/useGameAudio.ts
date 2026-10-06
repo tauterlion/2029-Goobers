@@ -1,4 +1,5 @@
 "use client";
+import { PODIUM } from "@/game/timing";
 import { useEffect, useRef } from "react";
 import type { GameView, Phase } from "@/game/engine";
 import { cue, music, sfx, tone } from "./manager";
@@ -117,11 +118,11 @@ export function useGameAudio(
     }
     if (state.phase === "final_podium") {
       for (const [ms, name] of [
-        [0, "third_place"],
-        [3000, "second_place"],
-        [4500, "first_place_build"],
-        [6000, "first_place_reveal"],
-        [6000, "confetti"],
+        [PODIUM.third, "third_place"],
+        [PODIUM.second, "second_place"],
+        [PODIUM.buildup, "first_place_build"],
+        [PODIUM.first, "first_place_reveal"],
+        [PODIUM.first, "confetti"],
       ] as const) {
         if (now - state.started >= ms) once(name, () => sfx(name, true));
       }

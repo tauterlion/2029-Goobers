@@ -1,6 +1,7 @@
 import { COPY } from "./copy";
 import { CAPTION_MIN, CAPTION_MAX } from "./caption";
 import { activeImages, defaultDeck, Deck } from "./deck";
+import { PODIUM } from "./timing";
 export const PHASES = [
   "lobby",
   "starting",
@@ -37,6 +38,7 @@ export interface Player {
   secret: string;
   connection: string;
   seen: number;
+  disconnectedAt?: number;
   joined: number;
   name: string;
   color: string;
@@ -70,6 +72,7 @@ export interface Result {
   winner: boolean;
 }
 export interface Room {
+  departed?: Player[];
   gameId?: string;
   deck?: Deck;
   recentGames?: string[][];
@@ -152,7 +155,48 @@ export function shuffle<T>(input: T[], random = Math.random): T[] {
   }
   return a;
 }
-export const connected = (p: Player, now: number) => now - p.seen < 25000;
+export const CONNECTION_LEASE = 25000;
+export const DISCONNECT_GRACE = 20000;
+export const connected = (p: Player | undefined, now: number) =>
+  !!p &&
+  p.disconnectedAt === undefined &&
+  p.seen > 0 &&
+  now - p.seen < CONNECTION_LEASE;
+const participants = (r: Room) => [...r.players, ...(r.departed ?? [])];
+export function removalDue(p: Player, now: number) {
+  return (
+    !connected(p, now) &&
+    now - (p.disconnectedAt ?? p.seen + CONNECTION_LEASE) >= DISCONNECT_GRACE
+  );
+}
+export function reconcilePresence(r: Room, now: number) {
+  for (const p of r.players) {
+    if (!connected(p, now)) p.disconnectedAt ??= p.seen + CONNECTION_LEASE;
+  }
+  const removed = r.players.filter((p) => removalDue(p, now));
+  r.players = r.players.filter((p) => !removed.includes(p));
+  // Keep game evidence without a live membership or reusable session credentials.
+  if (r.phase !== "lobby")
+    for (const p of removed)
+      (r.departed ??= []).push({ ...p, secret: "", connection: "" });
+  const online = r.players.filter((p) => connected(p, now));
+  if (!online.some((p) => p.id === r.host) && online.length)
+    r.host = online.sort(
+      (a, b) => a.joined - b.joined || a.id.localeCompare(b.id),
+    )[0].id;
+  else if (!r.players.some((p) => p.id === r.host) && !online.length)
+    r.host = "";
+}
+export function normalizeLibrary(r: Room, library: string[]) {
+  const valid = new Set(library),
+    prune = (images: string[]) => images.filter((x) => valid.has(x));
+  if (r.deck) r.deck.images = prune(r.deck.images);
+  if (r.recentGames) r.recentGames = r.recentGames.slice(0, 3).map(prune);
+  r.previous = prune(r.previous);
+  r.pool = prune(r.pool);
+  r.failed = prune(r.failed);
+  // Never rewrite current assignments, captions or completed result snapshots.
+}
 export function phase(r: Room, p: Phase, now: number, seconds?: number) {
   r.phase = p;
   r.epoch = crypto.randomUUID();
@@ -200,6 +244,7 @@ export function join(
   connection: string,
   now: number,
 ) {
+  reconcilePresence(r, now);
   requireThat(r.players.length < 12, COPY.errors.full);
   const n = nameValid(name);
   requireThat(
@@ -297,15 +342,15 @@ function closeCaptions(r: Room, now: number) {
     .map((id) => ({
       player: id,
       kind: connected(
-        r.players.find((p) => p.id === id)!,
+        r.players.find((p) => p.id === id),
         now,
       )
         ? "pin"
         : "grave",
     }));
   for (const gag of r.gags) {
-    const p = r.players.find((p) => p.id === gag.player)!;
-    p.stats[gag.kind === "pin" ? "pins" : "deaths"]++;
+    const p = participants(r).find((p) => p.id === gag.player);
+    if (p) p.stats[gag.kind === "pin" ? "pins" : "deaths"]++;
   }
   r.order = shuffle(r.captions.map((c) => c.id));
   if (r.gags.length) phase(r, "caption_resolution", now, 2.5);
@@ -340,7 +385,7 @@ export function score(r: Room, now: number) {
         : Object.values(r.votes).filter((v) => v.caption === c.id).length,
   }));
   const max = Math.max(0, ...counts.map((x) => x.count));
-  r.results = r.players.map((p) => {
+  r.results = participants(r).map((p) => {
     const item = counts.find((x) => x.c.player === p.id);
     const count = item?.count ?? 0;
     const winner =
@@ -385,6 +430,7 @@ export function score(r: Room, now: number) {
   phase(r, "vote_reveal", now, Math.max(3, r.electorate.length * 0.35 + 1));
 }
 function reset(r: Room) {
+  r.departed = [];
   r.players.forEach((p) => {
     p.score = 0;
     p.streak = 0;
@@ -444,7 +490,7 @@ export function advance(r: Room, now: number, library: string[], skip = false) {
     case "round_leaderboard":
       if (r.round >= r.settings.rounds) {
         completeGame(r);
-        phase(r, "final_podium", now, 10);
+        phase(r, "final_podium", now, PODIUM.duration / 1000);
       } else roundStart(r, now, library);
       break;
     case "final_podium":
@@ -466,6 +512,8 @@ export function completeGame(r: Room) {
   r.archivedGameId = id;
 }
 export function tick(r: Room, now: number, library: string[]) {
+  normalizeLibrary(r, library);
+  reconcilePresence(r, now);
   const online = r.players.filter((p) => connected(p, now));
   if (!online.some((p) => p.id === r.host) && online.length)
     r.host = online.sort(
@@ -506,8 +554,10 @@ export function act(
   }
   if (a.type === "heartbeat") return;
   if (a.type === "leave") {
+    p.disconnectedAt = now;
     p.seen = 0;
     p.connection = "";
+    reconcilePresence(r, now);
     return;
   }
   if (a.type === "rename") {
@@ -610,11 +660,10 @@ export function act(
         r.captions.some((c) => c.image === a.image),
       COPY.errors.image,
     );
-    if (!r.failed.includes(a.image!)) r.failed.push(a.image!);
-    const replacement = drawImage(r, p.id, library);
-    for (const id of Object.keys(r.assignments))
-      if (r.assignments[id] === a.image) r.assignments[id] = replacement;
-    for (const c of r.captions) if (c.image === a.image) c.image = replacement;
+    // Backward compatibility for old clients: acknowledge without altering the
+    // authoritative source. One browser's network failure is not a new draw.
+    if (process.env.NODE_ENV === "development")
+      console.warn("Assigned image failed to load:", a.image);
     return;
   }
   requireThat(!p.pending && r.electorate.includes(p.id), COPY.errors.pending);
@@ -669,7 +718,38 @@ export function view(r: Room, id: string, now: number, library: string[] = []) {
     "vote_reveal",
     ...(reveal ? [r.phase] : []),
   ].includes(r.phase);
+  const publicPlayer = ({
+    id,
+    name,
+    color,
+    score,
+    streak,
+    pending,
+    stats,
+    ...privateFields
+  }: Player) => ({
+    id,
+    name,
+    color,
+    score: reveal ? score : 0,
+    streak: reveal ? streak : 0,
+    pending,
+    stats: reveal
+      ? stats
+      : { pins: 0, deaths: 0, votes: 0, longest: 0, robbed: 0 },
+    online: connected(privateFields as Player, now),
+    removed: !r.players.some((p) => p.id === id),
+  });
   return {
+    participants: participants(r).map(publicPlayer),
+    // Wake active browsers at the next lease/grace boundary instead of waiting
+    // up to another heartbeat interval. Empty rooms resume on their next visit.
+    presenceDeadline: r.players.reduce<number | null>((next, p) => {
+      const due =
+        (p.disconnectedAt ?? p.seen + CONNECTION_LEASE) +
+        (connected(p, now) ? 0 : DISCONNECT_GRACE);
+      return next === null ? due : Math.min(next, due);
+    }, null),
     id: r.id,
     gameId: r.gameId ?? r.epoch,
     deck: r.deck ?? defaultDeck(),

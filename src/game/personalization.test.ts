@@ -94,6 +94,7 @@ describe("authoritative decks", () => {
     ).toThrow(COPY.errors.deckInvalid);
     act(r, r.players[0], action, now, library);
     r.players[0].seen = 0;
+    r.players[0].disconnectedAt = now;
     tick(r, now, library);
     act(
       r,
@@ -136,6 +137,7 @@ describe("authoritative decks", () => {
         for (let i = 0; i < 50; i++)
           expect(["a", "b"]).toContain(drawImage(r, "p", library));
         const broken = r.assignments[r.players[0].id];
+        const before = { ...r.assignments };
         act(
           r,
           r.players[0],
@@ -143,11 +145,7 @@ describe("authoritative decks", () => {
           now,
           library,
         );
-        expect(
-          Object.values(r.assignments).every(
-            (x) => ["a", "b"].includes(x) && x !== broken,
-          ),
-        ).toBe(true);
+        expect(r.assignments).toEqual(before);
         r.failed = ["a", "b"];
         expect(drawImage(r, "p", library)).toBe("");
       }
@@ -237,14 +235,12 @@ describe("shared-first-place results", () => {
   for (const n of [2, 3, 4, 12])
     it(`scores ${n}-way ties equally and continues to leaderboard`, () => {
       const r = setup(Math.max(4, n));
-      r.captions = r.players
-        .slice(0, n)
-        .map((p, i) => ({
-          id: `c${i}`,
-          player: p.id,
-          text: "caption",
-          image: "a",
-        }));
+      r.captions = r.players.slice(0, n).map((p, i) => ({
+        id: `c${i}`,
+        player: p.id,
+        text: "caption",
+        image: "a",
+      }));
       r.electorate = r.players.slice(0, n).map((p) => p.id);
       r.players.forEach((p) => (p.streak = 1));
       r.electorate.forEach(

@@ -1,5 +1,5 @@
 export const CAPTION_MIN = 3;
-export const CAPTION_MAX = 100;
+export const CAPTION_MAX = 160;
 // Match native textarea maxLength (UTF-16 units), without splitting emoji clusters.
 export function truncateCaption(value: string) {
   let result = "";

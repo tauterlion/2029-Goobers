@@ -32,7 +32,7 @@ Static images under `public/` are reachable by their asset paths. Rooms and UI a
 
 ## Checks
 
-Edit most game dialogue in `src/game/copy.ts`. Text is grouped by screen, errors, awards and results. Captions accept 3 visible characters minimum and 100 UTF-16 units maximum, matching native textarea `maxLength`; emoji may use multiple units. The counter uses the same budget, and paste truncation preserves complete emoji clusters.
+Edit most game dialogue in `src/game/copy.ts`. Text is grouped by screen, errors, awards and results. Captions accept 3 visible characters minimum and 160 UTF-16 units maximum, matching native textarea `maxLength`; emoji may use multiple units. The counter uses the same budget, and paste truncation preserves complete emoji clusters.
 
 ```sh
 npm test
@@ -79,7 +79,9 @@ RLS denies all anonymous/authenticated direct table access. Only the server serv
 
 Deadlines are server timestamps. Clients show server-aligned remaining time and request an idempotent transition at expiry. An eight-second heartbeat provides liveness and catches missed broadcasts. The server checks deadlines before accepting commands. With no clients connected, rooms sleep; the next request resumes authoritative progression. No database writes happen each animation frame or timer second.
 
-Local storage remembers the random session token and room code. A separate per-page connection ID claims a 25-second lease. The original active connection wins; a duplicate cannot control it. Normal refresh sends a best-effort release; if the browser/network loses that request, wait for lease expiry. Disconnect detection may take about 25–33 seconds. Host migration follows original join order among connected members and does not restore an old host automatically. Mid-round joins enter the next round and never change the current electorate. Disconnected members keep scores and room slots; the host may remove them after returning to the lobby.
+Local storage remembers the random session token and room code. A separate per-page connection ID claims a 25-second lease. The original active connection wins; a duplicate cannot control it. Normal refresh sends a best-effort release; if the browser/network loses that request, wait for lease expiry. An explicit leave marks the player disconnected immediately; a hard network loss is detected at lease expiry. Host migration follows original join order among connected members without waiting for removal, and a returning host does not take control back automatically.
+
+Disconnected players have a 20-second grace period from the explicit leave or lease expiry. Resuming in time cancels removal. Active clients wake at the projected presence deadline; heartbeats provide fallback. Empty rooms reconcile on the next request. Expired members free their room slots and can rejoin normally with a new identity (pending next round during play). Sanitized departed-player records preserve current-game scores/authors, captions, valid votes and the frozen electorate; future rounds exclude their old identities. Rematch/lobby reset clears those historical participant records.
 
 Expiry is approximately six hours of inactivity. Room creation opportunistically calls `cleanup_stale_rooms`; reads exclude expired rooms. For scheduled housekeeping, enable Supabase pg_cron and schedule `select public.cleanup_stale_rooms();` hourly as an administrative database role. Cleanup is not on the correctness path.
 
@@ -88,7 +90,7 @@ Expiry is approximately six hours of inactivity. Room creation opportunistically
 - **Room service needs setup:** check `.env.local`, restart Next.js, and ensure the SQL migration ran in the same project as the URL/key.
 - **Changes are delayed:** check Supabase Realtime availability and browser WebSocket access. The heartbeat recovers state after a missed broadcast.
 - **Already playing elsewhere:** close the original tab and retry after 25 seconds. Don't clear storage unless you want a different identity.
-- **No images:** run `npm run assets` and inspect the generated count. Unsupported extensions are ignored. Failed images are replaced server-side; if every asset fails, a captionable blank-canvas fallback prevents a stall.
+- **No images:** run `npm run assets` and inspect the generated count. Unsupported extensions are ignored. Once assigned, an image never changes within the round. A load error shows IMAGE UNAVAILABLE for that original source; refresh/remount may retry the same source. No client failure requests a replacement draw.
 - **No voices:** expected when no recordings exist. Audio requires a user gesture and is entirely optional.
 - **Connection overlay:** restores state when the backend responds again; gameplay writes are blocked while the overlay is visible.
 
@@ -104,8 +106,17 @@ The room keeps `recentGames`, up to three completed games of deduplicated image 
 
 Shared first place now uses a dedicated **TIE** burst, oversized title and equal winner cards within the existing round-winner phase. Scoring, streaks and phase duration remain unchanged. An optional `public/audio/sfx/round_tie.mp3` hook is available; missing files stay silent. See `AUDIO.md`.
 
-No Supabase migration, dependency installation or Vercel environment change is required for V1.2. Rebuild/redeploy the app normally. The asset scanner currently indexes **120 images** and continues running before development/build.
+No Supabase migration, dependency installation or Vercel environment change is required for V1.2 or V1.2.5. Rebuild/redeploy the app normally. The asset scanner currently indexes **146 images** and continues running before development/build. The current folder contents are authoritative; stored deck/history paths removed from the library are pruned without altering current-round snapshots.
+
+## V1.2.5 interactions and presentation
+
+- Every visible lobby tag can be dragged/thrown locally. Pointer capture supports mouse/touch; bounded velocity, friction and light bounces settle naturally. RESET LAYOUT affects only your browser. No physics engine or Supabase position writes. Reduced motion disables release inertia. Drag on tags; scroll normally elsewhere.
+- Host moderation now lives in MANAGE PLAYERS, separate from the tags. Kicking remains lobby-only and permits rejoining. EDIT MY PROFILE is available separately as well as by clicking your own tag without dragging.
+- Reactions use a fixed translucent dock in a reserved bottom strip. On phones, a compact button opens a horizontally scrollable emoji tray in that same strip; tap away, Escape or × closes it. Opening it does not resize the gameplay scroll area. Outgoing reactions retain the 250ms limit; at most 20 particles exist and one cleanup timer removes them after 2.5 seconds.
+- `src/app/themes.css` contains the calmer blue/teal/coral Vibrant palette. `src/app/qol.css` keeps decorations faint and behind content, styles the fixed tray, and makes tie rays viewport-wide. `Topography.tsx` supplies a single SVG layer with 14 paths and a slow transform animation; reduced motion stops it.
+- The podium timeline is centralized in `src/game/timing.ts`: 8.5 seconds total instead of 10, second at 2.55s, first at 5.1s and standings at 6.375s. Audio and visuals share the timeline. First place has a stronger short scale impact.
+- Extra checks: `npm run test:grace` exercises actual disconnect timing on the configured server; `npm run test:interaction` checks twelve tags, touch/reduced motion, settled animation frames and reaction bounds. Both honor `TEST_URL` like the other smoke tests.
 
 ## Verification status and boundaries
 
-See `VERIFICATION-V1.2.md` for current checks and `VERIFICATION.md` for V1.1 checks. A local adapter cannot prove a remote Supabase migration, Realtime delivery, or Vercel deployment. Those require a configured project. There are no accounts, permanent histories, public galleries, or uploaded media management.
+See `VERIFICATION-V1.2.5.md` for current checks, `VERIFICATION-V1.2.md` for V1.2, and `VERIFICATION.md` for V1.1. A local adapter cannot prove a remote Supabase migration, Realtime delivery, or Vercel deployment. Those require a configured project. There are no accounts, permanent histories, public galleries, or uploaded media management.

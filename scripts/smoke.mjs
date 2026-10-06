@@ -21,6 +21,20 @@ const contexts = await Promise.all(
 const pages = await Promise.all(contexts.map((c) => c.newPage()));
 pages.forEach((p) => p.setDefaultTimeout(20000));
 const errors = [];
+const latest = [];
+pages.forEach((page, i) =>
+  page.on("response", async (response) => {
+    if (response.url().endsWith("/api/game"))
+      try {
+        const data = await response.json();
+        if (
+          data.state &&
+          (!latest[i] || data.state.version >= latest[i].version)
+        )
+          latest[i] = data.state;
+      } catch {}
+  }),
+);
 pages.forEach((p) => p.on("pageerror", (e) => errors.push(e.message)));
 await mkdir("test-results", { recursive: true });
 async function screenshot(page, name) {
@@ -55,6 +69,59 @@ try {
     document.querySelector(".player-cloud")?.textContent?.includes("Jules"),
   );
   await screenshot(pages[0], "desktop-lobby");
+  const physicsWrites = [];
+  const physicsRequest = (req) => {
+    if (
+      req.url().endsWith("/api/game") &&
+      req.method() === "POST" &&
+      !["heartbeat", "read", "resume"].includes(req.postDataJSON().type)
+    )
+      physicsWrites.push(req.postDataJSON().type);
+  };
+  pages[0].on("request", physicsRequest);
+  const tag = pages[0].getByRole("button", { name: "Drag Sam", exact: true });
+  const before = await tag.boundingBox();
+  await pages[0].mouse.move(before.x + 30, before.y + 30);
+  await pages[0].mouse.down();
+  await pages[0].mouse.move(before.x + 150, before.y + 120, { steps: 8 });
+  await pages[0].mouse.up();
+  await pages[0].waitForTimeout(350);
+  const thrown = await tag.boundingBox();
+  assert.ok(
+    Math.abs(thrown.x - before.x) > 30 || Math.abs(thrown.y - before.y) > 30,
+  );
+  assert.equal(await pages[0].locator(".player-management").count(), 0);
+  await pages[0]
+    .getByRole("button", { name: "RESET LAYOUT", exact: true })
+    .click();
+  const reset = await tag.boundingBox();
+  assert.ok(Math.abs(reset.x - before.x) < 2);
+  const tagBounds = await pages[0]
+    .locator(".throwable-tag")
+    .evaluateAll((tags) => tags.map((t) => t.getBoundingClientRect().toJSON()));
+  for (let i = 0; i < tagBounds.length; i++)
+    for (let j = i + 1; j < tagBounds.length; j++)
+      assert.ok(
+        Math.abs(tagBounds[i].x - tagBounds[j].x) > 140 ||
+          Math.abs(tagBounds[i].y - tagBounds[j].y) > 70,
+        "Reset separates name tags",
+      );
+  assert.deepEqual(physicsWrites, []);
+  pages[0].off("request", physicsRequest);
+  await pages[0]
+    .getByRole("button", { name: "MANAGE PLAYERS", exact: true })
+    .click();
+  assert.equal(await pages[0].locator(".player-management button").count(), 3);
+  assert.equal(
+    await pages[0]
+      .getByRole("button", { name: "KICK Alex", exact: true })
+      .count(),
+    0,
+  );
+  await screenshot(pages[0], "desktop-player-management");
+  await pages[0]
+    .getByRole("button", { name: "MANAGE PLAYERS", exact: true })
+    .click();
   // Personal themes never submit a game action and remain independent.
   const themeWrites = [];
   const onRequest = (req) => {
@@ -110,6 +177,14 @@ try {
     .locator("img")
     .getAttribute("src");
   await screenshot(pages[0], "desktop-deck");
+  for (let i = 2; i <= 4; i++) {
+    await pages[0]
+      .getByRole("button", { name: `Image ${i}`, exact: true })
+      .click();
+    await pages[0]
+      .getByText(`${i} / ${imageCount} IMAGES ACTIVE`, { exact: true })
+      .waitFor();
+  }
   await pages[0]
     .getByRole("button", { name: "CLOSE DECK", exact: true })
     .click();
@@ -138,44 +213,92 @@ try {
       document.querySelector('select[aria-label="Caption timer"]').value ===
         "60" && !document.querySelector("button.primary:disabled"),
   );
+  await pages[0].getByLabel("Image mode").selectOption("different");
+  await pages[0].waitForFunction(
+    () =>
+      document.querySelector('select[aria-label="Image mode"]').value ===
+        "different" && !document.querySelector("button.primary:disabled"),
+  );
   await pages[0].getByRole("button", { name: "START GAME" }).click();
   await pages[0].getByLabel("Your caption").waitFor({ timeout: 20000 });
-  assert.equal(
-    await pages[0].locator(".meme-frame img").getAttribute("src"),
-    deckImage,
+  await Promise.all(
+    pages.map((page) => page.getByLabel("Your caption").waitFor()),
   );
+  const assignments = await Promise.all(
+    pages.map((page) => page.locator(".meme-frame img").getAttribute("src")),
+  );
+  assert.equal(new Set(assignments).size, 4);
+  assert.ok(assignments.includes(deckImage));
   const caption = pages[0].getByLabel("Your caption");
-  assert.equal(await caption.getAttribute("maxlength"), "100");
-  await caption.pressSequentially("x".repeat(105));
+  assert.equal(await caption.getAttribute("maxlength"), "160");
+  await caption.pressSequentially("x".repeat(165));
   assert.equal(
     await caption.inputValue(),
-    "x".repeat(100),
-    "Typing must stop at 100",
+    "x".repeat(160),
+    "Typing must stop at 160",
   );
+  await caption.press("Backspace");
+  assert.equal((await caption.inputValue()).length, 159);
+  await caption.pressSequentially("z");
+  assert.equal((await caption.inputValue()).length, 160);
+  await caption.press("Home");
+  await caption.press("Delete");
+  await caption.pressSequentially("q");
+  assert.equal((await caption.inputValue()).length, 160);
   await caption.fill("");
   await contexts[0].grantPermissions(["clipboard-read", "clipboard-write"]);
-  await pages[0].evaluate(() => navigator.clipboard.writeText("p".repeat(105)));
+  await pages[0].evaluate(() => navigator.clipboard.writeText("p".repeat(165)));
   await caption.focus();
   await pages[0].keyboard.press("Control+V");
   assert.equal(
     await caption.inputValue(),
-    "p".repeat(100),
-    "Pasting must truncate to first 100",
+    "p".repeat(160),
+    "Pasting must truncate to first 160",
   );
   await pages[0].locator("#caption-counter.near-limit").waitFor();
   await caption.fill("");
-  await pages[0].evaluate(() => navigator.clipboard.writeText("😀".repeat(51)));
+  await pages[0].evaluate(() => navigator.clipboard.writeText("😀".repeat(81)));
   await caption.focus();
   await pages[0].keyboard.press("Control+V");
   assert.equal(
     await caption.inputValue(),
-    "😀".repeat(50),
+    "😀".repeat(80),
     "Emoji paste must honor native limit without a split surrogate",
   );
   await caption.fill("");
   await screenshot(pages[0], "desktop-caption");
   await pages[1].setViewportSize({ width: 390, height: 844 });
   await screenshot(pages[1], "mobile-caption");
+  const mobileForm = await pages[1].locator(".caption-form").boundingBox();
+  await pages[1]
+    .getByRole("button", { name: "😂 REACTIONS", exact: true })
+    .click();
+  await pages[1].getByRole("button", { name: "React 🔥", exact: true }).click();
+  const withTray = await pages[1].locator(".caption-form").boundingBox();
+  assert.deepEqual(withTray, mobileForm);
+  assert.equal(
+    await pages[1].evaluate(() => {
+      const world = document.querySelector(".world").getBoundingClientRect(),
+        dock = document.querySelector(".reaction-dock").getBoundingClientRect();
+      return world.bottom <= dock.top;
+    }),
+    true,
+    "Mobile dock stays below the gameplay scroll viewport",
+  );
+  await screenshot(pages[1], "mobile-reaction-tray");
+  await pages[1].locator(".section-title h1").click();
+  assert.equal(await pages[1].locator(".reactions").isVisible(), false);
+  await pages[0].locator(".meme-frame img").dispatchEvent("error");
+  await pages[0].locator(".meme-frame .image-fallback").waitFor();
+  assert.equal(
+    await pages[0].locator(".image-fallback").getAttribute("data-image-source"),
+    assignments[0],
+  );
+  await pages[0].getByLabel("Theme", { exact: true }).selectOption("light");
+  assert.equal(
+    await pages[0].locator(".image-fallback").getAttribute("data-image-source"),
+    assignments[0],
+  );
   await pages[0]
     .getByLabel("Your caption")
     .fill("When the group project has one brain cell");
@@ -189,6 +312,10 @@ try {
   // A lost/raced pagehide release can require the existing 25-second lease.
   await pages[0].getByLabel("Your caption").waitFor({ timeout: 35000 });
   assert.equal(
+    await pages[0].locator(".meme-frame img").getAttribute("src"),
+    assignments[0],
+  );
+  assert.equal(
     await pages[0].getByLabel("Your caption").inputValue(),
     "When the group project has one brain cell",
   );
@@ -199,6 +326,14 @@ try {
     await pages[i].getByRole("button", { name: "SUBMIT CAPTION" }).click();
   }
   await pages[0].getByText("ANONYMOUS").waitFor();
+  const sourceByText = new Map(
+    assignments.map((image, i) => [
+      i === 0
+        ? "When the group project has one brain cell"
+        : `This meeting could have been a meme ${i}`,
+      image,
+    ]),
+  );
   await screenshot(pages[0], "desktop-slideshow");
   // Refresh releases the old host's connection. Follow the authoritative host.
   let hostPage;
@@ -212,12 +347,24 @@ try {
   }
   assert.ok(hostPage, "A connected host must control the slideshow");
   for (let i = 0; i < 4; i++) {
+    const shown = await hostPage.locator(".meme-caption").innerText();
+    const shownImage = await hostPage
+      .locator(".slideshow img")
+      .getAttribute("src");
+    assert.ok(
+      [...sourceByText].some(
+        ([text, image]) => shown.includes(text) && image === shownImage,
+      ),
+      "Slideshow keeps the caption image",
+    );
     const next = hostPage.getByRole("button", {
       name: i === 3 ? "TIME TO DECIDE…" : "NEXT UP…!",
     });
     await next.click();
   }
   await pages[0].getByText("TIME TO").waitFor();
+  for (const c of latest[0].captions)
+    assert.equal(c.image, sourceByText.get(c.text));
   await screenshot(pages[0], "desktop-voting");
   await pages[1].getByText("TIME TO").waitFor();
   await screenshot(pages[1], "mobile-voting");
@@ -252,10 +399,31 @@ try {
   assert.equal(await pages[0].locator(".tie-stage .winner-card").count(), 4);
   await screenshot(pages[0], "desktop-tie");
   await screenshot(pages[1], "mobile-tie");
+  for (const size of [
+    { width: 1440, height: 810 },
+    { width: 2560, height: 1080 },
+  ]) {
+    await pages[0].setViewportSize(size);
+    assert.equal(
+      await pages[0].locator(".world").evaluate((el) => {
+        const s = getComputedStyle(el, "::before");
+        return (
+          s.position === "fixed" &&
+          s.top === "0px" &&
+          s.bottom === "0px" &&
+          s.left === "0px" &&
+          s.right === "0px"
+        );
+      }),
+      true,
+    );
+    await screenshot(pages[0], `tie-${size.width}`);
+  }
+  await pages[0].setViewportSize({ width: 1440, height: 1000 });
   await pages[0].getByText("CURRENT").waitFor({ timeout: 15000 });
   await screenshot(pages[0], "desktop-leaderboard");
   await hostPage.getByRole("button", { name: "FINAL RESULTS" }).click();
-  await pages[0].waitForTimeout(8200);
+  await pages[0].waitForTimeout(6900);
   await screenshot(pages[0], "desktop-podium");
   await pages[0].locator(".awards").waitFor();
   await screenshot(pages[0], "desktop-awards");
@@ -267,13 +435,20 @@ try {
     .getByRole("button", { name: "EDIT DECK", exact: true })
     .waitFor();
   await pages[0]
-    .getByText(`1 / ${imageCount} IMAGES ACTIVE`, { exact: true })
+    .getByText(`4 / ${imageCount} IMAGES ACTIVE`, { exact: true })
     .waitFor();
   assert.equal(
     await pages[1].getByLabel("Theme", { exact: true }).inputValue(),
     "coffee",
   );
   await screenshot(pages[1], "mobile-lobby");
+  await pages[1].emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(
+    await pages[1]
+      .locator(".topography svg")
+      .evaluate((el) => getComputedStyle(el).animationName),
+    "none",
+  );
   assert.equal(errors.length, 0, errors.join("\n"));
   console.log(
     "PASS: four independent browsers, complete game, refresh recovery, results and lobby return; desktop/mobile screenshots; no browser errors.",

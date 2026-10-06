@@ -15,6 +15,8 @@
     "lint": "eslint .",
     "test:smoke": "node scripts/smoke.mjs",
     "test:api": "node scripts/api-smoke.mjs",
+    "test:grace": "node scripts/grace-smoke.mjs",
+    "test:interaction": "node scripts/interaction-smoke.mjs",
     "format": "prettier --write src scripts"
   },
   "keywords": [],

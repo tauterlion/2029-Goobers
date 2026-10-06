@@ -2,7 +2,7 @@
 export const COPY = {
   errors: {
     name: "Use 1–14 characters.",
-    caption: "Use 3–100 characters.",
+    caption: "Use 3–160 characters.",
     settings: "Choose 1–15 rounds and 10–60 captioning seconds.",
     full: "ROOM FULL",
     duplicateName: "NAME ALREADY IN USE, PICK ANOTHER",
@@ -69,6 +69,13 @@ export const COPY = {
     footer2: "2029 GOOBERS",
   },
   lobby: {
+    drag: "Drag",
+    resetLayout: "RESET LAYOUT",
+    editProfile: "EDIT MY PROFILE",
+    manage: "MANAGE PLAYERS",
+    host: "HOST",
+    kick: "KICK",
+    removed: "LEFT THE ROOM",
     title: "LOBBY",
     invite: "INVITE YOUR FRIENDS",
     assemble: "MEET THE",
@@ -212,6 +219,10 @@ export const COPY = {
     waiting: "Waiting for the host.",
   },
   common: {
+    imageAlt: "Your caption challenge",
+    reactions: "😂 REACTIONS",
+    sendReaction: "Send a reaction",
+    closeReactions: "Close reactions",
     reconnecting: "Reconnecting…",
     lost: "CONNECTION LOST",
     recover: "Trying to reconnect…",

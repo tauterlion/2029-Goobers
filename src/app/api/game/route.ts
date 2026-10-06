@@ -9,6 +9,9 @@ import {
   tick,
   view,
   connected,
+  reconcilePresence,
+  removalDue,
+  normalizeLibrary,
   Action,
 } from "@/game/engine";
 import { create, load, mutate, local } from "@/lib/store";
@@ -82,8 +85,9 @@ export async function POST(req: NextRequest) {
     const code = (a.code ?? "").trim().toUpperCase();
     if (a.type === "read") {
       const r = await load(code);
+      normalizeLibrary(r, assets.images);
       const p = r.players.find((p) => p.secret === secret);
-      if (!p) throw new Error(COPY.errors.session);
+      if (!p || removalDue(p, now)) throw new Error(COPY.errors.session);
       if (p.connection !== a.connection && connected(p, now))
         throw new Error(COPY.errors.duplicateSession);
       return NextResponse.json({
@@ -92,21 +96,25 @@ export async function POST(req: NextRequest) {
       });
     }
     const { room, result } = await mutate(code, (r) => {
+      reconcilePresence(r, now);
+      normalizeLibrary(r, assets.images);
       let p = r.players.find((p) => p.secret === secret);
       if (!p) {
-        if (a.type !== "join") throw new Error(COPY.errors.session);
+        if (a.type !== "join") return null;
         p = join(r, a.name ?? "", secret, a.connection, now);
       } else {
         if (p.connection !== a.connection && connected(p, now))
           throw new Error(COPY.errors.duplicateSession);
         p.connection = a.connection;
         p.seen = now;
+        delete p.disconnectedAt;
       }
       tick(r, now, assets.images);
       if (a.type !== "join" && a.type !== "resume")
         act(r, p, a as Action, now, assets.images);
       return p.id;
     });
+    if (!result) throw new Error(COPY.errors.session);
     return NextResponse.json({
       state: view(room, result, now, assets.images),
       local,

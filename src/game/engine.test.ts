@@ -77,9 +77,11 @@ describe("room and identity", () => {
     const r = setup();
     const original = r.host;
     r.players[0].seen = 0;
+    r.players[0].disconnectedAt = time;
     tick(r, time, library);
     expect(r.host).toBe(r.players[1].id);
     r.players[0].seen = time;
+    delete r.players[0].disconnectedAt;
     tick(r, time, library);
     expect(r.host).not.toBe(original);
   });
@@ -159,7 +161,7 @@ describe("images", () => {
       );
     }
   });
-  it("replaces a broken shared image and excludes failures", () => {
+  it("preserves a broken shared assignment without drawing a replacement", () => {
     const r = setup();
     r.assignments = Object.fromEntries(
       r.electorate.map((id) => [id, library[0]]),
@@ -172,18 +174,21 @@ describe("images", () => {
       library,
     );
     expect(new Set(Object.values(r.assignments)).size).toBe(1);
-    expect(Object.values(r.assignments)).not.toContain(library[0]);
+    expect(Object.values(r.assignments).every((x) => x === library[0])).toBe(
+      true,
+    );
+    expect(r.used).toEqual([]);
   });
 });
 describe("captions and recovery", () => {
   it("checks grapheme length and supports emoji", () => {
     expect(() => captionValid("ab")).toThrow();
-    expect(() => captionValid("x".repeat(101))).toThrow();
+    expect(() => captionValid("x".repeat(161))).toThrow();
     expect(captionValid("😀😎🔥")).toBe("😀😎🔥");
-    expect(captionValid("x".repeat(99))).toHaveLength(99);
-    expect(captionValid("x".repeat(100))).toHaveLength(100);
-    expect(captionValid("😀".repeat(50))).toHaveLength(100);
-    expect(() => captionValid("😀".repeat(51))).toThrow();
+    expect(captionValid("x".repeat(159))).toHaveLength(159);
+    expect(captionValid("x".repeat(160))).toHaveLength(160);
+    expect(captionValid("😀".repeat(80))).toHaveLength(160);
+    expect(() => captionValid("😀".repeat(81))).toThrow();
   });
   it("updates one submission and closes on all submitted", () => {
     const r = setup();

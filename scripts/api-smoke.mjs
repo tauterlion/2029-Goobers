@@ -88,10 +88,10 @@ assert.equal(s.phase, "captioning");
 assert.match(
   await call(
     host,
-    { type: "caption", text: "x".repeat(101), epoch: s.epoch },
+    { type: "caption", text: "x".repeat(161), epoch: s.epoch },
     true,
   ),
-  /3–100/,
+  /3–160/,
 );
 const views = await Promise.all(all.map((p) => call(p, { type: "read" })));
 assert.equal(new Set(views.map((v) => v.image)).size, 12);

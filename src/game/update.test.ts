@@ -15,10 +15,10 @@ function setup() {
   return r;
 }
 describe("caption input limit", () => {
-  it("truncates paste to 100 without splitting emoji", () => {
-    expect(truncateCaption("x".repeat(101))).toBe("x".repeat(100));
-    expect(truncateCaption("x".repeat(99) + "😀")).toBe("x".repeat(99));
-    expect(truncateCaption("😀".repeat(51))).toBe("😀".repeat(50));
+  it("truncates paste to 160 without splitting emoji", () => {
+    expect(truncateCaption("x".repeat(161))).toBe("x".repeat(160));
+    expect(truncateCaption("x".repeat(159) + "😀")).toBe("x".repeat(159));
+    expect(truncateCaption("😀".repeat(81))).toBe("😀".repeat(80));
     expect(truncateCaption("abc")).toBe("abc");
   });
 });
@@ -97,6 +97,7 @@ describe("authoritative early voting closure", () => {
     expect(() =>
       act(r, late, { type: "vote", target: "c0", epoch }, 100001, []),
     ).toThrow();
+    const disconnectedId = r.players[3].id;
     r.players[3].seen = 0;
     for (const p of r.players.slice(0, 3))
       act(
@@ -110,7 +111,7 @@ describe("authoritative early voting closure", () => {
     r.players.slice(0, 3).forEach((p) => (p.seen = 129999));
     tick(r, 130000, []);
     expect(r.phase).toBe("vote_reveal");
-    expect(r.votes[r.players[3].id].random).toBe(true);
+    expect(r.votes[disconnectedId].random).toBe(true);
     expect(r.votes[late.id]).toBeUndefined();
   });
   it("a pending joiner never prevents all manual votes closing early", () => {
